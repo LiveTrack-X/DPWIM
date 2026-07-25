@@ -137,7 +137,7 @@ only (`GPL-3.0-only`).
 ## AI-assisted development / AI 보조 개발
 
 DirectPipe is developed with substantial assistance from AI coding tools,
-primarily Claude and Codex. The initial ideas, product direction, and basic
+primarily Codex. The initial ideas, product direction, and basic
 structure of selected documents are owner-led; scope, priorities, and final
 acceptance decisions remain owner-led as well.
 
@@ -151,7 +151,7 @@ development workflow only and is not part of the DirectPipe runtime.
 AI-assisted output is reviewed and validated where possible, but AI use does
 not itself guarantee correctness or replace owner responsibility.
 
-DirectPipe는 주로 Claude와 Codex 같은 AI 코딩 도구의 상당한 보조를 받아
+DirectPipe는 주로 Codex 같은 AI 코딩 도구의 상당한 보조를 받아
 개발합니다. 초기 아이디어, 제품 방향, 일부 문서의 기본 구조는 소유자가
 정하며, 범위·우선순위·최종 승인 결정도 소유자가 맡습니다.
 
