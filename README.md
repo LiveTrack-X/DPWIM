@@ -4,7 +4,7 @@ DPWIM is a standalone Windows x64 VST2/VST3 audio-effect plugin that preserves
 its upstream mono/stereo input and adds audio captured from selected Windows
 applications or the desktop mix.
 
-Status: `v0.1.0` public preview. It is locally software-verified, but unsigned,
+Status: `v0.2.0` public preview. It is locally software-verified, but unsigned,
 not DAW-matrix-tested, and not claimed production-ready.
 
 ## Signal flow
