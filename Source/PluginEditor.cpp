@@ -231,6 +231,12 @@ DPWIMAudioProcessorEditor::DPWIMAudioProcessorEditor(
 
     configureLabel(markLabel_, "DPWIM", 29.0f, juce::Font::bold,
                    juce::Justification::centredLeft);
+    configureLabel(versionLabel_,
+                   "v" + juce::String(ProjectInfo::versionString),
+                   13.0f, juce::Font::plain,
+                   juce::Justification::centred);
+    versionLabel_.setColour(
+        juce::Label::textColourId, juce::Colour(accent));
     configureLabel(productLabel_, "Windows Input Mixer", 18.0f,
                    juce::Font::plain,
                    juce::Justification::centredLeft);
@@ -240,6 +246,7 @@ DPWIMAudioProcessorEditor::DPWIMAudioProcessorEditor(
     sampleRateLabel_.setColour(
         juce::Label::textColourId, juce::Colour(secondary));
     addAndMakeVisible(markLabel_);
+    addAndMakeVisible(versionLabel_);
     addAndMakeVisible(productLabel_);
     addAndMakeVisible(sampleRateLabel_);
     addAndMakeVisible(refreshButton_);
@@ -372,6 +379,13 @@ void DPWIMAudioProcessorEditor::paint(juce::Graphics& graphics)
 
     graphics.setColour(juce::Colour(raised));
     graphics.fillRoundedRectangle(
+        versionLabel_.getBounds().toFloat(), 4.0f);
+    graphics.setColour(juce::Colour(divider));
+    graphics.drawRoundedRectangle(
+        versionLabel_.getBounds().toFloat(), 4.0f, 1.0f);
+
+    graphics.setColour(juce::Colour(raised));
+    graphics.fillRoundedRectangle(
         sampleRateLabel_.getBounds().toFloat(), 4.0f);
     graphics.setColour(juce::Colour(divider));
     graphics.drawRoundedRectangle(
@@ -412,9 +426,11 @@ void DPWIMAudioProcessorEditor::resized()
 {
     auto content = contentBounds();
     auto header = content.removeFromTop(56);
-    markLabel_.setBounds(header.removeFromLeft(128));
-    header.removeFromLeft(12);
-    productLabel_.setBounds(header.removeFromLeft(220));
+    markLabel_.setBounds(header.removeFromLeft(118));
+    versionLabel_.setBounds(
+        header.removeFromLeft(62).reduced(0, 13));
+    header.removeFromLeft(10);
+    productLabel_.setBounds(header.removeFromLeft(200));
     header.removeFromLeft(10);
     sampleRateLabel_.setBounds(
         header.removeFromLeft(76).reduced(0, 11));

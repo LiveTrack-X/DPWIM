@@ -52,7 +52,9 @@ Status: Active
 - Applies to: DPWIM-0002
 - Decision: Use one Dry Input master strip and four equal vertical source
   strips with custom JUCE rotary controls, dynamic executable icons, concise
-  capture states, and a resizable 1000 x 620 reference layout.
+  capture states, an automatic build-version badge, and a resizable 1000 x 620
+  reference layout. Read the badge from `ProjectInfo::versionString` so the UI
+  cannot drift from the CMake/JUCE plugin version.
 - Why: The prior horizontal form made app-to-app gain and sync comparison slow.
   The selected console direction keeps every source's identity, Gain, Offset,
   and state in one consistent scan path.

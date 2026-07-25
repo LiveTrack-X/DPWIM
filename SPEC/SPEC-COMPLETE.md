@@ -163,6 +163,7 @@ JUCE editor must adopt its mixer-console hierarchy while preserving the
 `v0.1.0` audio and state contracts:
 
 - one compact header with DPWIM identity, sample-rate context, and Refresh Apps;
+- one compact version badge sourced from the plugin build metadata;
 - one Dry Input master strip with Dry Gain and Target Latency;
 - four equal source channel strips arranged for side-by-side comparison;
 - application selector, capture status, Gain, and Sync Offset in every strip;

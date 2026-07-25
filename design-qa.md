@@ -79,6 +79,14 @@ Post-fix evidence:
 - `out/ui/dpwim-mixer-console-minimum.png` has no P0-P2 responsive defects.
 - No actionable P0, P1, or P2 difference remains.
 
+### Pass 3
+
+- Added a compact build-version badge between the DPWIM mark and product name.
+- The badge reads `ProjectInfo::versionString`; the captured `v0.2.0` value
+  therefore matches the actual plugin build metadata.
+- Reference and minimum-size captures retain the header hierarchy with no
+  overlap, clipping, or P0-P2 regression.
+
 ## Accepted Product Constraints
 
 - Target Latency remains an adjustable rotary control instead of the mock's

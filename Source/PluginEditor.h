@@ -46,6 +46,7 @@ private:
     std::unique_ptr<juce::LookAndFeel_V4> lookAndFeel_;
 
     juce::Label markLabel_;
+    juce::Label versionLabel_;
     juce::Label productLabel_;
     juce::Label sampleRateLabel_;
     juce::TextButton refreshButton_{"Refresh apps"};
