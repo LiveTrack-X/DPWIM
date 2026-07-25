@@ -7,6 +7,15 @@ applications or the desktop mix.
 > Mix and synchronize your DAW input with Windows application audio in one
 > plugin.
 
+## DirectPipe
+
+**[DirectPipe](https://github.com/LiveTrack-X/DirectPipe)**는 VST2/VST3/AU
+플러그인 체인, 빠른 프리셋 전환, 단축키·MIDI·Stream Deck·WebSocket·HTTP
+제어를 지원하는 실시간 오디오 플러그인 호스트입니다.
+
+DPWIM은 DirectPipe에서 일반 64-bit VST2/VST3 플러그인으로 사용할 수 있지만,
+DirectPipe 없이 다른 호환 DAW에서도 독립적으로 사용할 수 있습니다.
+
 ## 한국어 소개
 
 **DirectPipe Windows Input Mixer(DPWIM)**는 DAW의 기존 마이크·플러그인 체인
