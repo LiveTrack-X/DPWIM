@@ -87,6 +87,14 @@ Post-fix evidence:
 - Reference and minimum-size captures retain the header hierarchy with no
   overlap, clipping, or P0-P2 regression.
 
+### Pass 4
+
+- [P2] Runtime icons could cover the first letters of selected process names
+  because the ComboBox text bounds were calculated before icon availability.
+- Reserved a permanent 42 px icon column in every application selector.
+- `Chrome` and `Discord` render in full at both 1000 x 620 and 840 x 520; no
+  remaining selector overlap or P0-P2 regression is visible.
+
 ## Accepted Product Constraints
 
 - Target Latency remains an adjustable rotary control instead of the mock's

@@ -55,7 +55,7 @@ single normative entrypoint. State owns execution; handoff owns continuity.
 - Policy: `Repository-Operating-Rules.md`; procedures: `sdad/playbooks/`.
 - Current handoff: use `../sdad-state.yaml#current_handoff` when declared.
 - Decisions: `../SPEC/adr/`.
-- Releases: `releases/`; current preview notes: `releases/v0.2.0.md`.
+- Releases: `releases/`; current preview notes: `releases/v0.2.1.md`.
 
 ## Maintenance
 

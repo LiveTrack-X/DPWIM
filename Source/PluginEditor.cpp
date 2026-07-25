@@ -178,14 +178,10 @@ public:
     void positionComboBoxText(juce::ComboBox& box,
                               juce::Label& label) override
     {
-        const bool hasIcon =
-            static_cast<bool>(
-                box.getProperties().getWithDefault(
-                    "hasIcon", false));
-        const int left = hasIcon ? 42 : 12;
+        constexpr int iconColumnWidth = 42;
         label.setBounds(
-            left, (box.getHeight() - 22) / 2,
-            box.getWidth() - left - 26, 22);
+            iconColumnWidth, (box.getHeight() - 22) / 2,
+            box.getWidth() - iconColumnWidth - 26, 22);
         label.setFont(juce::Font(14.0f));
         label.setMinimumHorizontalScale(0.68f);
         label.setJustificationType(
@@ -489,7 +485,6 @@ void DPWIMAudioProcessorEditor::refreshProcesses()
         const auto snapshot = processor_.sourceSnapshot(rowIndex);
         auto& row = rows_[static_cast<std::size_t>(rowIndex)];
         row.selectedIcon = {};
-        selector.getProperties().set("hasIcon", false);
         selector.clear(juce::dontSendNotification);
         selector.addItem("Off", 1);
         selector.addItem("Desktop (exclude host)", 2);
@@ -523,8 +518,6 @@ void DPWIMAudioProcessorEditor::refreshProcesses()
                             createIconForFile(
                                 juce::File(
                                     juce::String(path.c_str())));
-                    selector.getProperties().set(
-                        "hasIcon", !row.selectedIcon.isNull());
                 }
             }
         }

@@ -2,6 +2,30 @@
 
 All notable changes to DPWIM are documented here.
 
+## [0.2.1] - 2026-07-26
+
+### Added
+
+- Compact plugin-version badge in the mixer header.
+
+### Changed
+
+- Bound the visible version directly to the CMake/JUCE build metadata so the
+  interface, VST2 DLL, and VST3 module report the same version.
+
+### Fixed
+
+- Reserved a stable icon column in application selectors so executable icons
+  cannot cover the first letters of process names.
+
+### Verification
+
+- Windows x64 VST2/VST3 Release build and deterministic core tests.
+- Real process-loopback rendered-tone smoke test.
+- JUCE VST2/VST3 scan, instantiate, latency, processing, and state probe.
+- Native editor visual QA at reference and minimum sizes.
+- SDAD Doctor 3.2.2 strict.
+
 ## [0.2.0] - 2026-07-26
 
 ### Added
