@@ -8,12 +8,9 @@ No active findings at the local software-verification boundary.
 
 ## Future / Deferred Findings
 
-- [High] [packet:DPWIM-0001] Before owner acceptance or release, manually
-  verify desktop feedback exclusion, UI operation, and DAW unload/reload in
-  DirectPipe and a representative third-party DAW.
-- [High] [packet:DPWIM-0001] Final source/JUCE/VST2 licensing and public
-  repository visibility remain owner decisions; no public distribution is
-  authorized.
+- [High] [packet:DPWIM-0001] Before a stable/general-compatibility claim,
+  manually verify desktop feedback exclusion, UI operation, and DAW
+  unload/reload in DirectPipe and a representative third-party DAW.
 - Multiple standalone instances do not yet share a capture coordinator and may
   duplicate capture work or overlap sources. Revisit before multi-instance
   compatibility is claimed.
@@ -25,3 +22,5 @@ No active findings at the local software-verification boundary.
 - [Closed] [packet:DPWIM-0001] JUCE host probe scanned and instantiated both
   Release formats, matched a dry impulse to the reported 2,400-sample latency,
   and restored serialized state.
+- [Closed] [packet:DPWIM-0001] Owner authorized public repository visibility,
+  GPL-3.0-only licensing, and an unsigned `v0.1.0` preview release.

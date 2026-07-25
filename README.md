@@ -4,8 +4,8 @@ DPWIM is a standalone Windows x64 VST2/VST3 audio-effect plugin that preserves
 its upstream mono/stereo input and adds audio captured from selected Windows
 applications or the desktop mix.
 
-Status: locally software-verified prototype under packet `DPWIM-0001`. It is
-not released, signed, DAW-matrix-tested, or owner-accepted.
+Status: `v0.1.0` public preview. It is locally software-verified, but unsigned,
+not DAW-matrix-tested, and not claimed production-ready.
 
 ## Signal flow
 
@@ -54,8 +54,9 @@ cmake -S . -B build `
   -DDPWIM_BUILD_TESTS=ON
 ```
 
-VST2 headers are not redistributed. Public distribution, signing, repository
-visibility, and the final project license remain owner-controlled.
+VST2 headers are not redistributed. DPWIM source and release binaries are
+licensed under GPL-3.0-only; see `LICENSE`. Release binaries are currently
+unsigned.
 
 ## Local verification
 
@@ -74,4 +75,11 @@ frames and non-zero energy. The host probe scans and instantiates both formats,
 checks the dry impulse against reported latency, and round-trips plugin state.
 
 Manual validation in DirectPipe and representative third-party DAWs is still
-required before release.
+required before a stable/general-compatibility claim.
+
+## License
+
+Copyright (c) 2026 LiveTrack-X.
+
+DPWIM is free software licensed under the GNU General Public License version 3
+only (`GPL-3.0-only`).

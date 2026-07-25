@@ -12,6 +12,6 @@ https://github.com/microsoft/Windows-classic-samples/blob/main/LICENSE
 
 ## JUCE
 
-DPWIM fetches JUCE 7.0.12 at configure time. JUCE is available under its
-applicable open-source or commercial licensing terms. The final DPWIM
-distribution model is not selected by this repository bootstrap.
+DPWIM fetches JUCE 7.0.12 at configure time. This public DPWIM distribution
+uses JUCE under the GNU General Public License version 3. Commercial JUCE
+licensees may apply their separately obtained terms as applicable.

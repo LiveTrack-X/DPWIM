@@ -8,9 +8,9 @@ No active work. DPWIM-0001 is locally software-verified.
 
 ## Future / Deferred
 
-- [packet:DPWIM-0001] Before owner acceptance or release, run manual UI/audio
-  validation in DirectPipe and a representative third-party DAW, including
-  desktop exclusion and unload.
+- [packet:DPWIM-0001] Before a stable/general-compatibility claim, run manual
+  UI/audio validation in DirectPipe and a representative third-party DAW,
+  including desktop exclusion and unload.
 - DirectPipe built-in integration requires a separate owner-selected packet.
 - Shared capture coordination across multiple plugin instances.
 - Dynamic offset crossfade and timestamp-calibrated sample alignment beyond the
@@ -19,8 +19,9 @@ No active work. DPWIM-0001 is locally software-verified.
 
 ## Release / Production Readiness
 
-Owner must decide licensing, repository visibility, signing, and distribution
-before any public release.
+The owner authorized a public `LiveTrack-X/DPWIM` repository, GPL-3.0-only,
+and an unsigned `v0.1.0` preview release on 2026-07-26. Code signing and a
+stable release remain deferred.
 
 ## Recently Closed
 

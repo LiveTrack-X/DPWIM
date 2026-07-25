@@ -135,6 +135,12 @@ identity, repository visibility, supported-host matrix, installer policy, and
 manual validation on representative Windows hardware. Software verification is
 not owner acceptance.
 
+For `v0.1.0`, the owner authorized a public `LiveTrack-X/DPWIM` repository,
+GPL-3.0-only licensing, and an unsigned preview release on 2026-07-26. The
+preview must disclose the missing representative-DAW/manual validation.
+Signing, a supported-host matrix, installer publication, and stable or
+production-ready claims remain gated.
+
 ## DPWIM-0001 Local Evidence
 
 Recorded 2026-07-26 on Windows 10.0.26200:
