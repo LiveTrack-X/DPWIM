@@ -6,7 +6,7 @@
 > 하나의 플러그인에서 DAW 입력과 Windows 애플리케이션 오디오를 믹스하고
 > 동기화하세요.
 
-## DirectPipe / 다이렉트파이프
+## DirectPipe 
 
 **[DirectPipe](https://github.com/LiveTrack-X/DirectPipe)** is a cross-platform
 real-time VST2/VST3/AU host with plugin-chain processing, fast preset switching,
