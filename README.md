@@ -4,6 +4,21 @@ DPWIM is a standalone Windows x64 VST2/VST3 audio-effect plugin that preserves
 its upstream mono/stereo input and adds audio captured from selected Windows
 applications or the desktop mix.
 
+> Mix and synchronize your DAW input with Windows application audio in one
+> plugin.
+
+## 한국어 소개
+
+**DirectPipe Windows Input Mixer(DPWIM)**는 DAW의 기존 마이크·플러그인 체인
+입력에 Windows 애플리케이션 또는 데스크톱 오디오를 직접 합성하는 Windows
+x64 VST2/VST3 플러그인입니다.
+
+최대 4개 소스의 음량, ON/OFF, ±200 ms 싱크를 각각 조절할 수 있으며 별도의
+가상 오디오 장치 없이 사용할 수 있습니다. 현재 GPL-3.0 기반의 무료 공개
+프리뷰입니다.
+
+**[DPWIM v0.2.2 다운로드](https://github.com/LiveTrack-X/DPWIM/releases/tag/v0.2.2)**
+
 Status: `v0.2.2` public preview. It is locally software-verified, but unsigned,
 not DAW-matrix-tested, and not claimed production-ready.
 
