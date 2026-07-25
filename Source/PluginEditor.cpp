@@ -194,14 +194,16 @@ public:
         bool down) override
     {
         auto bounds = button.getLocalBounds().toFloat().reduced(0.5f);
-        const auto fill = down ? juce::Colour(raised)
-                              : juce::Colour(control);
+        const bool toggled = button.getToggleState();
+        const auto fill = toggled
+            ? juce::Colour(accent).withAlpha(down ? 0.26f : 0.16f)
+            : down ? juce::Colour(raised) : juce::Colour(control);
         graphics.setColour(
             highlighted ? fill.brighter(0.08f) : fill);
         graphics.fillRoundedRectangle(bounds, 5.0f);
         graphics.setColour(
-            highlighted ? juce::Colour(accent)
-                        : juce::Colour(border));
+            toggled || highlighted ? juce::Colour(accent)
+                                   : juce::Colour(border));
         graphics.drawRoundedRectangle(bounds, 5.0f, 1.0f);
     }
 
@@ -285,7 +287,9 @@ DPWIMAudioProcessorEditor::DPWIMAudioProcessorEditor(
                        juce::Font::plain,
                        juce::Justification::centred);
         configureLabel(row.status, "Off", 14.0f, juce::Font::plain,
-                       juce::Justification::centred);
+                       juce::Justification::centredLeft);
+        row.status.setBorderSize({0, 14, 0, 0});
+        row.status.setMinimumHorizontalScale(0.72f);
         configureLabel(row.gainLabel, "Gain (dB)", 14.0f,
                        juce::Font::plain,
                        juce::Justification::centred);
@@ -303,6 +307,7 @@ DPWIMAudioProcessorEditor::DPWIMAudioProcessorEditor(
         addAndMakeVisible(row.title);
         addAndMakeVisible(row.applicationLabel);
         addAndMakeVisible(row.selector);
+        addAndMakeVisible(row.power);
         addAndMakeVisible(row.status);
         addAndMakeVisible(row.gainLabel);
         addAndMakeVisible(row.gain);
@@ -316,6 +321,11 @@ DPWIMAudioProcessorEditor::DPWIMAudioProcessorEditor(
             state, "sourceOffset" + juce::String(index), row.offset);
         row.selector.onChange = [this, index] {
             applySelection(index);
+        };
+        row.power.onClick = [this, index] {
+            const auto snapshot = processor_.sourceSnapshot(index);
+            processor_.setSourceEnabled(index, !snapshot.enabled);
+            timerCallback();
         };
     }
 
@@ -390,7 +400,7 @@ void DPWIMAudioProcessorEditor::paint(juce::Graphics& graphics)
     for (const auto& row : rows_) {
         const auto bounds = row.status.getBounds();
         const auto centre = juce::Point<float>(
-            static_cast<float>(bounds.getX() + 9),
+            static_cast<float>(bounds.getX() + 5),
             static_cast<float>(bounds.getCentreY()));
         graphics.setColour(
             juce::Colour(row.active ? accent : disabled));
@@ -464,8 +474,10 @@ void DPWIMAudioProcessorEditor::resized()
         row.applicationLabel.setBounds(inner.removeFromTop(22));
         row.selector.setBounds(
             inner.removeFromTop(42).reduced(0, 3));
-        row.status.setBounds(
-            inner.removeFromTop(32).reduced(18, 2));
+        auto statusRow = inner.removeFromTop(32).reduced(8, 2);
+        row.power.setBounds(statusRow.removeFromLeft(52));
+        statusRow.removeFromLeft(4);
+        row.status.setBounds(statusRow);
         row.gainLabel.setBounds(inner.removeFromTop(24));
         row.gain.setBounds(inner.removeFromTop(
             juce::jlimit(142, 178, inner.getHeight() / 2)));
@@ -486,7 +498,7 @@ void DPWIMAudioProcessorEditor::refreshProcesses()
         auto& row = rows_[static_cast<std::size_t>(rowIndex)];
         row.selectedIcon = {};
         selector.clear(juce::dontSendNotification);
-        selector.addItem("Off", 1);
+        selector.addItem("Select source", 1);
         selector.addItem("Desktop (exclude host)", 2);
         int selectedId = snapshot.mode
                                  == DPWIMAudioProcessor::SourceMode::Desktop
@@ -549,7 +561,9 @@ void DPWIMAudioProcessorEditor::applySelection(int row)
                     processes_[index].executable.c_str()));
         }
     }
+    refreshProcesses();
     timerCallback();
+    repaint();
 }
 
 void DPWIMAudioProcessorEditor::timerCallback()
@@ -565,17 +579,25 @@ void DPWIMAudioProcessorEditor::timerCallback()
          index < static_cast<int>(rows_.size()); ++index) {
         auto& row = rows_[static_cast<std::size_t>(index)];
         const auto snapshot = processor_.sourceSnapshot(index);
-        const bool enabled =
+        const bool hasSource =
             snapshot.mode != DPWIMAudioProcessor::SourceMode::Off;
-        row.active = snapshot.running;
+        const bool enabled = hasSource && snapshot.enabled;
+        row.active = enabled && snapshot.running;
+        row.power.setEnabled(hasSource);
+        row.power.setToggleState(
+            enabled, juce::dontSendNotification);
+        row.power.setButtonText(enabled ? "ON" : "OFF");
+        row.power.setColour(
+            juce::TextButton::textColourOffId,
+            juce::Colour(enabled ? accent : secondary));
         row.gain.setEnabled(enabled);
         row.offset.setEnabled(enabled);
         row.status.setColour(
             juce::Label::textColourId,
             juce::Colour(snapshot.running ? accent : disabled));
         row.status.setText(
-            snapshot.mode == DPWIMAudioProcessor::SourceMode::Off
-                ? "Off"
+            !hasSource ? "No source"
+                : !enabled ? "Disabled"
                 : snapshot.running ? "Capturing"
                                    : snapshot.status,
             juce::dontSendNotification);

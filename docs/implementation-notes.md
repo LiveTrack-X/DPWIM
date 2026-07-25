@@ -63,3 +63,17 @@ Status: Active
 - Verification impact: Render the real native editor at reference and minimum
   sizes, compare the reference-size capture against the selected design, and
   rerun all audio and plugin probes.
+
+## IMPL-0006 - Source enable state and neutral startup mix
+
+- Date: 2026-07-26
+- Applies to: DPWIM-0003
+- Decision: Default new instances to 10 ms Target Latency and 0 dB source
+  gains. Store a separate enabled flag for each configured source so ON/OFF
+  does not erase its selection, gain, or offset. Re-enumerate after a selector
+  change so Windows executable icons appear immediately when accessible.
+- Why: A neutral startup mix is easier to reason about, and a dedicated switch
+  must not force users to find and select the same process again.
+- Verification impact: Check defaults through the processor and both hosted
+  formats; round-trip a disabled configured source; rerun audio probes and
+  native-editor reference/minimum captures.

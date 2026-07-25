@@ -2,6 +2,19 @@
 
 All notable changes to DPWIM are documented here.
 
+## [Unreleased]
+
+### Added
+
+- Independent ON/OFF control for every source while preserving its selected
+  application or desktop identity.
+- Processor-state regression coverage for source enable persistence.
+
+### Changed
+
+- New instances default to 10 ms Target Latency and 0 dB on every source gain.
+- Application icons refresh immediately after selecting a source.
+
 ## [0.2.1] - 2026-07-26
 
 ### Added

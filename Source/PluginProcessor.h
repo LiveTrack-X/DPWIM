@@ -28,6 +28,7 @@ public:
         std::uint32_t pid = 0;
         juce::String executable;
         juce::String status;
+        bool enabled = false;
         bool running = false;
         double fillFrames = 0.0;
         double ratio = 1.0;
@@ -71,6 +72,7 @@ public:
 
     void setSource(int slot, SourceMode mode, std::uint32_t pid,
                    const juce::String& executable);
+    void setSourceEnabled(int slot, bool enabled);
     SourceSnapshot sourceSnapshot(int slot) const;
 
 private:
@@ -78,6 +80,7 @@ private:
         dpwim::AudioRingBuffer ring;
         dpwim::ProcessLoopbackCapture capture;
         std::atomic<int> mode{static_cast<int>(SourceMode::Off)};
+        std::atomic<bool> enabled{false};
         std::atomic<std::uint32_t> pid{0};
         std::atomic<double> fillFrames{0.0};
         std::atomic<double> ratio{1.0};

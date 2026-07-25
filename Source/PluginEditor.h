@@ -22,6 +22,7 @@ private:
         juce::Label title;
         juce::Label applicationLabel;
         juce::ComboBox selector;
+        juce::TextButton power{"OFF"};
         juce::Label status;
         juce::Label gainLabel;
         juce::Slider gain;

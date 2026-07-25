@@ -23,10 +23,14 @@ normal 64-bit VST2/VST3 effect.
 
 - Target Latency: one common 10-250 ms timeline for dry and captured sources.
 - Dry Gain: independent level for the upstream/microphone path.
-- Four source slots: Off, one selected application, or desktop capture.
+- Four source slots: one selected application or desktop capture.
+- Per-source ON/OFF: suspend capture and mixing without losing the selection.
 - Per-source Gain: independent -60 to +12 dB adjustment for every app.
 - Per-source Offset: signed -200 to +200 ms manual sync trim.
 - Refresh: updates the selectable Windows process list.
+
+New instances start at the minimum 10 ms Target Latency with Dry Gain and all
+source gains at 0 dB. Saved host projects and presets restore their own values.
 
 Each captured source has its own bounded FIFO and drift-correction clock. App
 mode includes the selected process tree; desktop mode captures system output

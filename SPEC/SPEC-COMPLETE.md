@@ -174,3 +174,24 @@ JUCE editor must adopt its mixer-console hierarchy while preserving the
 Acceptance requires a Release build, existing core/loopback/plugin probes,
 a rendered native-editor screenshot, and a visual QA comparison against the
 selected source image with no remaining P0-P2 findings.
+
+## DPWIM-0003 Default Mix And Source Enable State
+
+New plugin instances must start with Target Latency at its supported minimum
+of 10 ms and every source gain at 0 dB. Existing project and preset state
+continues to restore its saved values.
+
+Each source strip must expose an independent ON/OFF control. Turning a source
+off stops its capture worker and removes it from the mix without deleting its
+application/desktop mode, executable identity, gain, or sync offset. Turning it
+back on resumes the preserved selection. The enable state must round-trip with
+plugin state; legacy states without the field infer enabled for configured
+sources and disabled for Off sources.
+
+Application icons must be refreshed immediately after a selector change when
+Windows exposes the executable path. Protected or inaccessible processes may
+remain without an icon and must not receive a fabricated replacement.
+
+Acceptance requires default-value checks through both the processor and hosted
+VST formats, source-enable state round-trip coverage, the existing audio probes,
+and reference/minimum native-editor captures with no P0-P2 layout regression.

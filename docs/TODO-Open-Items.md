@@ -4,7 +4,7 @@ Status: Active
 
 ## Active Work
 
-No active work. DPWIM-0002 is locally software-verified.
+No active work. DPWIM-0003 is locally software-verified.
 
 ## Future / Deferred
 
@@ -37,3 +37,7 @@ stable release remain deferred.
   dynamic executable icons, and resizable reference/minimum layouts.
 - [x] [packet:DPWIM-0002] Captured the real JUCE editor and passed visual QA
   with no remaining P0-P2 findings.
+- [x] [packet:DPWIM-0003] Set neutral new-instance defaults, added persistent
+  per-source ON/OFF controls, and refreshed app icons immediately on selection.
+- [x] [packet:DPWIM-0003] Added processor/default/state regression coverage and
+  reran the existing audio, hosted-plugin, and responsive UI checks.

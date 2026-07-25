@@ -95,6 +95,16 @@ Post-fix evidence:
 - `Chrome` and `Discord` render in full at both 1000 x 620 and 840 x 520; no
   remaining selector overlap or P0-P2 regression is visible.
 
+### Pass 5
+
+- Added a compact ON/OFF button to every source status row.
+- The reference capture shows two active sources, one configured-but-disabled
+  source, and one unconfigured source without losing the four-strip rhythm.
+- Added fixed status-dot padding and horizontal text scaling; `Capturing`,
+  `Disabled`, and `No source` remain readable at 840 x 520 with no overlap.
+- New-instance Target Latency is visibly 10.0 ms and an unconfigured source
+  visibly retains the neutral 0.0 dB gain default.
+
 ## Accepted Product Constraints
 
 - Target Latency remains an adjustable rotary control instead of the mock's

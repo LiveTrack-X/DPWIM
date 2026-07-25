@@ -58,7 +58,7 @@ DPWIMAudioProcessor::createParameterLayout()
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> parameters;
     parameters.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"targetLatency", 1}, "Target Latency",
-        juce::NormalisableRange<float>(10.0f, 250.0f, 0.1f), 50.0f,
+        juce::NormalisableRange<float>(10.0f, 250.0f, 0.1f), 10.0f,
         juce::AudioParameterFloatAttributes().withLabel("ms")));
     parameters.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"dryGain", 1}, "Dry Gain",
@@ -69,7 +69,7 @@ DPWIMAudioProcessor::createParameterLayout()
         parameters.push_back(std::make_unique<juce::AudioParameterFloat>(
             juce::ParameterID{gainParameter(slot), 1},
             "Source " + juce::String(slot + 1) + " Gain",
-            juce::NormalisableRange<float>(-60.0f, 12.0f, 0.1f), -6.0f,
+            juce::NormalisableRange<float>(-60.0f, 12.0f, 0.1f), 0.0f,
             juce::AudioParameterFloatAttributes().withLabel("dB")));
         parameters.push_back(std::make_unique<juce::AudioParameterFloat>(
             juce::ParameterID{offsetParameter(slot), 1},
@@ -141,8 +141,9 @@ void DPWIMAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
 
     for (int index = 0; index < kSourceSlots; ++index) {
         auto& slot = *slots_[static_cast<std::size_t>(index)];
-        if (slot.mode.load(std::memory_order_acquire)
-            == static_cast<int>(SourceMode::Off))
+        if (!slot.enabled.load(std::memory_order_acquire)
+            || slot.mode.load(std::memory_order_acquire)
+                == static_cast<int>(SourceMode::Off))
             continue;
 
         const float gainDb =
@@ -201,6 +202,30 @@ void DPWIMAudioProcessor::setSource(int slotIndex, SourceMode mode,
     }
     slot.pid.store(pid, std::memory_order_release);
     slot.mode.store(static_cast<int>(mode), std::memory_order_release);
+    slot.enabled.store(
+        mode != SourceMode::Off, std::memory_order_release);
+    startSlot(slotIndex);
+}
+
+void DPWIMAudioProcessor::setSourceEnabled(int slotIndex, bool enabled)
+{
+    if (!juce::isPositiveAndBelow(slotIndex, kSourceSlots))
+        return;
+    auto& slot = *slots_[static_cast<std::size_t>(slotIndex)];
+    const auto mode = static_cast<SourceMode>(
+        slot.mode.load(std::memory_order_acquire));
+    const bool shouldEnable = enabled && mode != SourceMode::Off;
+    const bool wasEnabled =
+        slot.enabled.exchange(shouldEnable, std::memory_order_acq_rel);
+    if (wasEnabled == shouldEnable)
+        return;
+    if (!shouldEnable) {
+        slot.capture.stop();
+        slot.ring.reset();
+        slot.fillFrames.store(0.0, std::memory_order_relaxed);
+        slot.ratio.store(1.0, std::memory_order_relaxed);
+        return;
+    }
     startSlot(slotIndex);
 }
 
@@ -211,6 +236,8 @@ void DPWIMAudioProcessor::startSlot(int slotIndex)
         return;
 
     auto& slot = *slots_[static_cast<std::size_t>(slotIndex)];
+    if (!slot.enabled.load(std::memory_order_acquire))
+        return;
     const auto mode =
         static_cast<SourceMode>(slot.mode.load(std::memory_order_acquire));
     if (mode == SourceMode::Off)
@@ -259,6 +286,8 @@ DPWIMAudioProcessor::sourceSnapshot(int slotIndex) const
     const auto& slot = *slots_[static_cast<std::size_t>(slotIndex)];
     snapshot.mode =
         static_cast<SourceMode>(slot.mode.load(std::memory_order_acquire));
+    snapshot.enabled =
+        slot.enabled.load(std::memory_order_acquire);
     snapshot.pid = slot.pid.load(std::memory_order_acquire);
     {
         std::lock_guard<std::mutex> lock(slot.identityMutex);
@@ -274,12 +303,13 @@ DPWIMAudioProcessor::sourceSnapshot(int slotIndex) const
 juce::ValueTree DPWIMAudioProcessor::createSourceState() const
 {
     juce::ValueTree sources("SOURCES");
-    sources.setProperty("schemaVersion", 1, nullptr);
+    sources.setProperty("schemaVersion", 2, nullptr);
     for (int index = 0; index < kSourceSlots; ++index) {
         const auto snapshot = sourceSnapshot(index);
         juce::ValueTree child("SOURCE");
         child.setProperty("slot", index, nullptr);
         child.setProperty("mode", static_cast<int>(snapshot.mode), nullptr);
+        child.setProperty("enabled", snapshot.enabled, nullptr);
         child.setProperty("pid", static_cast<juce::int64>(snapshot.pid), nullptr);
         child.setProperty("executable", snapshot.executable, nullptr);
         sources.addChild(child, -1, nullptr);
@@ -300,6 +330,9 @@ void DPWIMAudioProcessor::restoreSources(const juce::ValueTree& sources)
             static_cast<juce::int64>(child.getProperty("pid", 0)));
         const juce::String executable =
             child.getProperty("executable").toString();
+        const bool enabled = child.hasProperty("enabled")
+            ? static_cast<bool>(child.getProperty("enabled"))
+            : mode != SourceMode::Off;
         if (mode == SourceMode::Application && executable.isNotEmpty()) {
             const auto livePid = dpwim::ProcessCatalog::findPidByExecutable(
                 executable.toWideCharPointer());
@@ -307,6 +340,7 @@ void DPWIMAudioProcessor::restoreSources(const juce::ValueTree& sources)
                 pid = livePid;
         }
         setSource(slotIndex, mode, pid, executable);
+        setSourceEnabled(slotIndex, enabled);
     }
 }
 

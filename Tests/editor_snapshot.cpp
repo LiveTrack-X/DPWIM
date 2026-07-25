@@ -98,6 +98,8 @@ int main(int argc, char* argv[])
                      "sourceOffset" + juce::String(index),
                      offsets[static_cast<std::size_t>(index)]);
     }
+    if (selected.size() >= 3)
+        processor.setSourceEnabled(2, false);
 
     processor.prepareToPlay(48000.0, 512);
     std::unique_ptr<juce::AudioProcessorEditor> editor(

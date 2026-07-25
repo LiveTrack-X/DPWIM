@@ -4,7 +4,7 @@ Status: Active
 
 ## Active Findings
 
-No active findings at the DPWIM-0002 implementation boundary.
+No active findings at the DPWIM-0003 implementation boundary.
 
 ## Future / Deferred Findings
 
@@ -26,3 +26,7 @@ No active findings at the DPWIM-0002 implementation boundary.
   GPL-3.0-only licensing, and an unsigned `v0.1.0` preview release.
 - [Closed] [packet:DPWIM-0002] Application identity now uses each executable's
   Windows-provided icon; no third-party brand assets are bundled or invented.
+- [Closed] [packet:DPWIM-0003] Selecting an application now refreshes its
+  Windows-provided icon immediately instead of waiting for Refresh Apps.
+- [Closed] [packet:DPWIM-0003] A configured source can be disabled, persisted,
+  restored, and re-enabled without losing its executable identity.

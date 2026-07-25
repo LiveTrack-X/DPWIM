@@ -7,6 +7,25 @@
 
 namespace {
 
+bool checkDefault(juce::AudioPluginInstance& instance,
+                  const juce::String& parameterName,
+                  float expectedNormalized)
+{
+    for (auto* parameter : instance.getParameters()) {
+        if (parameter->getName(128) != parameterName)
+            continue;
+        const auto actual = parameter->getValue();
+        if (std::abs(actual - expectedNormalized) < 0.002f)
+            return true;
+        std::cerr << parameterName << " normalized default was "
+                  << actual << ", expected " << expectedNormalized
+                  << '\n';
+        return false;
+    }
+    std::cerr << "Missing parameter " << parameterName << '\n';
+    return false;
+}
+
 bool probe(juce::AudioPluginFormat& format, const juce::String& path)
 {
     juce::OwnedArray<juce::PluginDescription> descriptions;
@@ -27,6 +46,13 @@ bool probe(juce::AudioPluginFormat& format, const juce::String& path)
     }
 
     instance->setPlayConfigDetails(2, 2, 48000.0, 512);
+    bool defaultsOk = checkDefault(*instance, "Target Latency", 0.0f);
+    for (int slot = 0; slot < 4; ++slot)
+        defaultsOk = checkDefault(
+            *instance,
+            "Source " + juce::String(slot + 1) + " Gain",
+            60.0f / 72.0f)
+            && defaultsOk;
     instance->prepareToPlay(48000.0, 512);
     juce::AudioBuffer<float> audio(2, 512);
     juce::MidiBuffer midi;
@@ -75,7 +101,7 @@ bool probe(juce::AudioPluginFormat& format, const juce::String& path)
               << impulseOutputFrame << ", state="
               << (stateRoundTrip ? "restored" : "failed") << '\n';
     instance->releaseResources();
-    return finite && dryAligned && stateRoundTrip;
+    return finite && dryAligned && stateRoundTrip && defaultsOk;
 }
 
 } // namespace

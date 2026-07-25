@@ -5,11 +5,11 @@ execution_scope: packet
 
 active_spec: SPEC/SPEC-COMPLETE.md
 active_packet:
-  id: DPWIM-0002
-  objective: Redesign and verify the native plugin editor as a mixer-console UI based on the owner-selected visual direction.
+  id: DPWIM-0003
+  objective: Set neutral startup defaults and add persistent per-source ON/OFF controls with immediate application icons.
   status: software_verified
 
-validation_for: DPWIM-0002
+validation_for: DPWIM-0003
 
 owner_gates: []
 
@@ -19,7 +19,7 @@ validation:
   - command: cmake --build build --config Release --parallel
     proves: The Windows x64 plugin formats and registered test target compile.
   - command: ctest --test-dir build -C Release --output-on-failure
-    proves: The deterministic delay, offset direction, PLL bounds, FIFO wrap, and overflow recovery tests pass.
+    proves: The deterministic delay, offset direction, PLL bounds, FIFO recovery, neutral defaults, and source-enable state round-trip tests pass.
   - command: build/Release/dpwim-loopback-smoke.exe
     proves: Windows process-loopback activation captures frames and non-zero energy from a real rendered test tone.
   - command: build/Release/dpwim-plugin-probe.exe <VST3> <VST2>

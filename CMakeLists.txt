@@ -158,4 +158,21 @@ if(DPWIM_BUILD_TESTS)
         juce::juce_audio_utils
         juce::juce_recommended_config_flags
     )
+
+    add_executable(dpwim-processor-state-tests
+        Tests/processor_state.cpp
+    )
+    target_include_directories(dpwim-processor-state-tests PRIVATE
+        Source
+        "${CMAKE_CURRENT_BINARY_DIR}/DPWIM_artefacts/JuceLibraryCode"
+    )
+    target_link_libraries(dpwim-processor-state-tests PRIVATE
+        DPWIM
+        juce::juce_audio_utils
+        juce::juce_recommended_config_flags
+    )
+    add_test(
+        NAME dpwim-processor-state-tests
+        COMMAND dpwim-processor-state-tests
+    )
 endif()
