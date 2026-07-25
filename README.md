@@ -1,35 +1,55 @@
 # DirectPipe Windows Input Mixer (DPWIM)
 
-DPWIM is a standalone Windows x64 VST2/VST3 audio-effect plugin that preserves
-its upstream mono/stereo input and adds audio captured from selected Windows
-applications or the desktop mix.
-
 > Mix and synchronize your DAW input with Windows application audio in one
 > plugin.
+>
+> 하나의 플러그인에서 DAW 입력과 Windows 애플리케이션 오디오를 믹스하고
+> 동기화하세요.
 
-## DirectPipe
+## DirectPipe / 다이렉트파이프
+
+**[DirectPipe](https://github.com/LiveTrack-X/DirectPipe)** is a cross-platform
+real-time VST2/VST3/AU host with plugin-chain processing, fast preset switching,
+and external control through hotkeys, MIDI, Stream Deck, WebSocket, and HTTP.
 
 **[DirectPipe](https://github.com/LiveTrack-X/DirectPipe)**는 VST2/VST3/AU
 플러그인 체인, 빠른 프리셋 전환, 단축키·MIDI·Stream Deck·WebSocket·HTTP
 제어를 지원하는 실시간 오디오 플러그인 호스트입니다.
 
+DPWIM can be loaded by DirectPipe as a regular 64-bit VST2/VST3 effect, but it
+does not require DirectPipe and can run independently in another compatible
+DAW.
+
 DPWIM은 DirectPipe에서 일반 64-bit VST2/VST3 플러그인으로 사용할 수 있지만,
-DirectPipe 없이 다른 호환 DAW에서도 독립적으로 사용할 수 있습니다.
+DirectPipe가 필수는 아니며 다른 호환 DAW에서도 독립적으로 사용할 수
+있습니다.
 
-## 한국어 소개
+## About DPWIM / DPWIM 소개
 
-**DirectPipe Windows Input Mixer(DPWIM)**는 DAW의 기존 마이크·플러그인 체인
-입력에 Windows 애플리케이션 또는 데스크톱 오디오를 직접 합성하는 Windows
-x64 VST2/VST3 플러그인입니다.
+**DirectPipe Windows Input Mixer (DPWIM)** is a standalone Windows x64
+VST2/VST3 audio-effect plugin that preserves the existing microphone or plugin
+chain input and mixes in audio captured from Windows applications or the
+desktop.
+
+It provides independent gain, ON/OFF, and ±200 ms synchronization controls for
+up to four sources without requiring a virtual audio device. DPWIM is currently
+a free GPL-3.0 public preview.
+
+**DirectPipe Windows Input Mixer(DPWIM)**는 기존 마이크·플러그인 체인 입력을
+유지하면서 Windows 애플리케이션 또는 데스크톱 오디오를 직접 합성하는
+Windows x64 VST2/VST3 플러그인입니다.
 
 최대 4개 소스의 음량, ON/OFF, ±200 ms 싱크를 각각 조절할 수 있으며 별도의
 가상 오디오 장치 없이 사용할 수 있습니다. 현재 GPL-3.0 기반의 무료 공개
 프리뷰입니다.
 
-**[DPWIM v0.2.2 다운로드](https://github.com/LiveTrack-X/DPWIM/releases/tag/v0.2.2)**
+**[Download DPWIM v0.2.2 / DPWIM v0.2.2 다운로드](https://github.com/LiveTrack-X/DPWIM/releases/tag/v0.2.2)**
 
 Status: `v0.2.2` public preview. It is locally software-verified, but unsigned,
 not DAW-matrix-tested, and not claimed production-ready.
+
+상태: `v0.2.2` 공개 프리뷰입니다. 로컬 소프트웨어 검증은 통과했지만
+코드 서명과 광범위한 DAW 호환성 검증은 아직 완료되지 않았습니다.
 
 ## Signal flow
 
