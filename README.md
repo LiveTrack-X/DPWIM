@@ -17,6 +17,8 @@ App/Desktop -> process loopback -> FIFO/sync/offset -+-> mixed output
 The plugin has no runtime dependency on DirectPipe. DirectPipe can load it as a
 normal 64-bit VST2/VST3 effect.
 
+![DPWIM mixer console](docs/images/dpwim-mixer-console.png)
+
 ## Current controls
 
 - Target Latency: one common 10-250 ms timeline for dry and captured sources.

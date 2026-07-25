@@ -17,6 +17,24 @@ std::wstring lower(std::wstring value)
     return value;
 }
 
+std::wstring queryProcessPath(DWORD pid)
+{
+    HANDLE process = OpenProcess(
+        PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    if (process == nullptr)
+        return {};
+    std::wstring path(32768, L'\0');
+    DWORD size = static_cast<DWORD>(path.size());
+    if (!QueryFullProcessImageNameW(
+            process, 0, path.data(), &size)) {
+        CloseHandle(process);
+        return {};
+    }
+    CloseHandle(process);
+    path.resize(size);
+    return path;
+}
+
 } // namespace
 
 std::vector<ProcessInfo> ProcessCatalog::enumerate()
@@ -41,8 +59,17 @@ std::vector<ProcessInfo> ProcessCatalog::enumerate()
             if (executable.empty() || !seen.insert(key).second)
                 continue;
 
-            result.push_back(
-                {entry.th32ProcessID, executable, executable});
+            auto displayName = executable;
+            const auto lowered = lower(displayName);
+            if (lowered.size() > 4
+                && lowered.substr(lowered.size() - 4) == L".exe")
+                displayName.resize(displayName.size() - 4);
+
+            result.push_back({
+                entry.th32ProcessID,
+                executable,
+                displayName,
+                queryProcessPath(entry.th32ProcessID)});
         } while (Process32NextW(snapshot, &entry));
     }
     CloseHandle(snapshot);

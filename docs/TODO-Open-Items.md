@@ -4,7 +4,7 @@ Status: Active
 
 ## Active Work
 
-No active work. DPWIM-0001 is locally software-verified.
+No active work. DPWIM-0002 is locally software-verified.
 
 ## Future / Deferred
 
@@ -33,3 +33,7 @@ stable release remain deferred.
   best-effort executable reattachment.
 - [x] [packet:DPWIM-0001] Release build, deterministic tests, live process
   loopback smoke, and JUCE VST2/VST3 host probes passed locally.
+- [x] [packet:DPWIM-0002] Implemented the selected native mixer-console editor,
+  dynamic executable icons, and resizable reference/minimum layouts.
+- [x] [packet:DPWIM-0002] Captured the real JUCE editor and passed visual QA
+  with no remaining P0-P2 findings.

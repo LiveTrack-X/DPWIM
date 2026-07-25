@@ -63,6 +63,10 @@ public:
     void setStateInformation(const void*, int) override;
 
     juce::AudioProcessorValueTreeState& parameters() noexcept { return apvts_; }
+    double currentSampleRate() const noexcept
+    {
+        return sampleRate_.load(std::memory_order_acquire);
+    }
     std::vector<dpwim::ProcessInfo> enumerateProcesses() const;
 
     void setSource(int slot, SourceMode mode, std::uint32_t pid,

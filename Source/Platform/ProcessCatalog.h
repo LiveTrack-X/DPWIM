@@ -10,6 +10,7 @@ struct ProcessInfo {
     std::uint32_t pid = 0;
     std::wstring executable;
     std::wstring displayName;
+    std::wstring path;
 };
 
 class ProcessCatalog {

@@ -145,4 +145,17 @@ if(DPWIM_BUILD_TESTS)
         juce::juce_audio_utils
         juce::juce_recommended_config_flags
     )
+
+    add_executable(dpwim-editor-snapshot
+        Tests/editor_snapshot.cpp
+    )
+    target_include_directories(dpwim-editor-snapshot PRIVATE
+        Source
+        "${CMAKE_CURRENT_BINARY_DIR}/DPWIM_artefacts/JuceLibraryCode"
+    )
+    target_link_libraries(dpwim-editor-snapshot PRIVATE
+        DPWIM
+        juce::juce_audio_utils
+        juce::juce_recommended_config_flags
+    )
 endif()

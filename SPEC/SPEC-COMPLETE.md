@@ -155,3 +155,21 @@ Recorded 2026-07-26 on Windows 10.0.26200:
 
 This is software verification only. Desktop-exclude behavior, interactive UI,
 unload/reload, and listening quality still require representative DAW tests.
+
+## DPWIM-0002 Mixer Console UI
+
+The owner selected the first Product Design direction on 2026-07-26. The native
+JUCE editor must adopt its mixer-console hierarchy while preserving the
+`v0.1.0` audio and state contracts:
+
+- one compact header with DPWIM identity, sample-rate context, and Refresh Apps;
+- one Dry Input master strip with Dry Gain and Target Latency;
+- four equal source channel strips arranged for side-by-side comparison;
+- application selector, capture status, Gain, and Sync Offset in every strip;
+- active/off state contrast using a restrained cyan-on-charcoal visual system;
+- resizable desktop plugin layout with an accessible minimum size;
+- no new audio routing, mute, solo, metering, EQ, or synchronization behavior.
+
+Acceptance requires a Release build, existing core/loopback/plugin probes,
+a rendered native-editor screenshot, and a visual QA comparison against the
+selected source image with no remaining P0-P2 findings.

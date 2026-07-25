@@ -45,3 +45,17 @@ Status: Active
   host latency notifications must stay outside the real-time callback.
 - Verification impact: Host probe must process a dry impulse through both
   formats; representative DAW testing must exercise every source gain.
+
+## IMPL-0005 - Native mixer-console editor
+
+- Date: 2026-07-26
+- Applies to: DPWIM-0002
+- Decision: Use one Dry Input master strip and four equal vertical source
+  strips with custom JUCE rotary controls, dynamic executable icons, concise
+  capture states, and a resizable 1000 x 620 reference layout.
+- Why: The prior horizontal form made app-to-app gain and sync comparison slow.
+  The selected console direction keeps every source's identity, Gain, Offset,
+  and state in one consistent scan path.
+- Verification impact: Render the real native editor at reference and minimum
+  sizes, compare the reference-size capture against the selected design, and
+  rerun all audio and plugin probes.

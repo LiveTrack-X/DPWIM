@@ -5,11 +5,11 @@ execution_scope: packet
 
 active_spec: SPEC/SPEC-COMPLETE.md
 active_packet:
-  id: DPWIM-0001
-  objective: Build and locally verify the first standalone Windows x64 VST2/VST3 app-audio mixer.
+  id: DPWIM-0002
+  objective: Redesign and verify the native plugin editor as a mixer-console UI based on the owner-selected visual direction.
   status: software_verified
 
-validation_for: DPWIM-0001
+validation_for: DPWIM-0002
 
 owner_gates: []
 

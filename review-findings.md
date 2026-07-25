@@ -4,7 +4,7 @@ Status: Active
 
 ## Active Findings
 
-No active findings at the local software-verification boundary.
+No active findings at the DPWIM-0002 implementation boundary.
 
 ## Future / Deferred Findings
 
@@ -24,3 +24,5 @@ No active findings at the local software-verification boundary.
   and restored serialized state.
 - [Closed] [packet:DPWIM-0001] Owner authorized public repository visibility,
   GPL-3.0-only licensing, and an unsigned `v0.1.0` preview release.
+- [Closed] [packet:DPWIM-0002] Application identity now uses each executable's
+  Windows-provided icon; no third-party brand assets are bundled or invented.
