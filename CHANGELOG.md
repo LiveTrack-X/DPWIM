@@ -2,7 +2,7 @@
 
 All notable changes to DPWIM are documented here.
 
-## [Unreleased]
+## [0.2.2] - 2026-07-26
 
 ### Added
 

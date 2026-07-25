@@ -9,3 +9,15 @@
 /thirdparty/VST2_SDK/
 *.log
 *.wav
+
+# Local development control plane and working records
+/AGENTS.md
+/SPEC/
+/sdad-state.yaml
+/review-findings.md
+/design-qa.md
+/docs/INDEX.md
+/docs/Repository-Operating-Rules.md
+/docs/TODO-Open-Items.md
+/docs/implementation-notes.md
+/docs/sdad/
