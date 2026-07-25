@@ -1,0 +1,27 @@
+# DPWIM Review Findings
+
+Status: Active
+
+## Active Findings
+
+No active findings at the local software-verification boundary.
+
+## Future / Deferred Findings
+
+- [High] [packet:DPWIM-0001] Before owner acceptance or release, manually
+  verify desktop feedback exclusion, UI operation, and DAW unload/reload in
+  DirectPipe and a representative third-party DAW.
+- [High] [packet:DPWIM-0001] Final source/JUCE/VST2 licensing and public
+  repository visibility remain owner decisions; no public distribution is
+  authorized.
+- Multiple standalone instances do not yet share a capture coordinator and may
+  duplicate capture work or overlap sources. Revisit before multi-instance
+  compatibility is claimed.
+
+## Recently Closed
+
+- [Closed] [packet:DPWIM-0001] Local process-loopback smoke captured 67,200
+  frames with non-zero test-tone energy on Windows 10.0.26200.
+- [Closed] [packet:DPWIM-0001] JUCE host probe scanned and instantiated both
+  Release formats, matched a dry impulse to the reported 2,400-sample latency,
+  and restored serialized state.

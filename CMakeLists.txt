@@ -1,0 +1,148 @@
+cmake_minimum_required(VERSION 3.22)
+
+project(DPWIM VERSION 0.1.0 LANGUAGES CXX)
+
+if(NOT WIN32)
+    message(FATAL_ERROR "DPWIM currently supports Windows only.")
+endif()
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+if(MSVC)
+    add_compile_options(/utf-8 /permissive-)
+endif()
+
+include(FetchContent)
+
+set(DPWIM_JUCE_SOURCE_DIR "" CACHE PATH "Optional existing JUCE source directory")
+set(DPWIM_VST2_SDK_PATH "" CACHE PATH "Optional valid VST2 SDK root")
+option(DPWIM_BUILD_TESTS "Build deterministic core tests" ON)
+
+if(DPWIM_JUCE_SOURCE_DIR)
+    add_subdirectory("${DPWIM_JUCE_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/juce")
+else()
+    FetchContent_Declare(
+        JUCE
+        GIT_REPOSITORY https://github.com/juce-framework/JUCE.git
+        GIT_TAG 7.0.12
+        GIT_SHALLOW TRUE
+    )
+    FetchContent_MakeAvailable(JUCE)
+endif()
+
+set(DPWIM_FORMATS VST3)
+if(DPWIM_VST2_SDK_PATH)
+    if(EXISTS "${DPWIM_VST2_SDK_PATH}/pluginterfaces/vst2.x/aeffect.h")
+        juce_set_vst2_sdk_path("${DPWIM_VST2_SDK_PATH}")
+        list(APPEND DPWIM_FORMATS VST)
+        message(STATUS "DPWIM VST2 enabled from ${DPWIM_VST2_SDK_PATH}")
+    else()
+        message(FATAL_ERROR "DPWIM_VST2_SDK_PATH does not contain pluginterfaces/vst2.x/aeffect.h")
+    endif()
+else()
+    message(STATUS "DPWIM VST2 SDK not supplied; building VST3 only")
+endif()
+
+add_library(dpwim_core STATIC
+    Source/Audio/AudioRingBuffer.h
+    Source/Audio/AudioRingBuffer.cpp
+    Source/Audio/DryDelay.h
+    Source/Audio/DryDelay.cpp
+    Source/Platform/ProcessCatalog.h
+    Source/Platform/ProcessCatalog.cpp
+    Source/Platform/ProcessLoopbackCapture.h
+    Source/Platform/ProcessLoopbackCapture.cpp
+)
+
+target_include_directories(dpwim_core PUBLIC Source)
+target_compile_definitions(dpwim_core PUBLIC
+    NOMINMAX
+    WIN32_LEAN_AND_MEAN
+)
+target_link_libraries(dpwim_core PUBLIC
+    mmdevapi
+    ole32
+    uuid
+)
+
+juce_add_plugin(DPWIM
+    COMPANY_NAME "LiveTrack"
+    BUNDLE_ID "com.livetrack.dpwim"
+    PLUGIN_MANUFACTURER_CODE DPip
+    PLUGIN_CODE DPWM
+    FORMATS ${DPWIM_FORMATS}
+    PRODUCT_NAME "DirectPipe Windows Input Mixer"
+    VERSION ${PROJECT_VERSION}
+    IS_SYNTH FALSE
+    NEEDS_MIDI_INPUT FALSE
+    NEEDS_MIDI_OUTPUT FALSE
+    IS_MIDI_EFFECT FALSE
+    EDITOR_WANTS_KEYBOARD_FOCUS FALSE
+    COPY_PLUGIN_AFTER_BUILD FALSE
+)
+
+target_sources(DPWIM PRIVATE
+    Source/PluginProcessor.h
+    Source/PluginProcessor.cpp
+    Source/PluginEditor.h
+    Source/PluginEditor.cpp
+)
+
+juce_generate_juce_header(DPWIM)
+
+target_compile_definitions(DPWIM PUBLIC
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_VST3_CAN_REPLACE_VST2=0
+    JUCE_DISPLAY_SPLASH_SCREEN=0
+)
+
+target_link_libraries(DPWIM PRIVATE
+    dpwim_core
+    juce::juce_audio_utils
+    juce::juce_dsp
+    juce::juce_recommended_config_flags
+    juce::juce_recommended_warning_flags
+)
+
+if(DPWIM_BUILD_TESTS)
+    enable_testing()
+    add_executable(dpwim-tests
+        Tests/test_main.cpp
+    )
+    target_link_libraries(dpwim-tests PRIVATE dpwim_core)
+    add_test(NAME dpwim-core-tests COMMAND dpwim-tests)
+
+    add_executable(dpwim-loopback-smoke
+        Tests/loopback_smoke.cpp
+    )
+    target_link_libraries(dpwim-loopback-smoke PRIVATE dpwim_core winmm)
+
+    add_executable(dpwim-plugin-probe
+        Tests/plugin_probe.cpp
+    )
+    target_compile_definitions(dpwim-plugin-probe PRIVATE
+        JUCE_PLUGINHOST_VST3=1
+        JUCE_VST3_CAN_REPLACE_VST2=0
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+    )
+    if(DPWIM_VST2_SDK_PATH)
+        target_compile_definitions(dpwim-plugin-probe PRIVATE
+            JUCE_PLUGINHOST_VST=1
+        )
+        target_include_directories(dpwim-plugin-probe PRIVATE
+            "${DPWIM_VST2_SDK_PATH}"
+        )
+    else()
+        target_compile_definitions(dpwim-plugin-probe PRIVATE
+            JUCE_PLUGINHOST_VST=0
+        )
+    endif()
+    target_link_libraries(dpwim-plugin-probe PRIVATE
+        juce::juce_audio_utils
+        juce::juce_recommended_config_flags
+    )
+endif()

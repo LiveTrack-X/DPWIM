@@ -1,0 +1,11 @@
+/build/
+/.vs/
+/.vscode/
+/out/
+/*.user
+/*.suo
+/*.VC.db
+/*.VC.VC.opendb
+/thirdparty/VST2_SDK/
+*.log
+*.wav

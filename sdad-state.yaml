@@ -1,0 +1,39 @@
+version: 2
+updated: 2026-07-26
+scale: standard
+execution_scope: packet
+
+active_spec: SPEC/SPEC-COMPLETE.md
+active_packet:
+  id: DPWIM-0001
+  objective: Build and locally verify the first standalone Windows x64 VST2/VST3 app-audio mixer.
+  status: software_verified
+
+validation_for: DPWIM-0001
+
+owner_gates:
+  - public_repository_creation_requires_explicit_visibility_and_owner_instruction
+  - release_publication_signing_and_distribution_require_explicit_owner_instruction
+  - final_product_license_requires_owner_decision
+
+validation:
+  - command: cmake -S . -B build -DDPWIM_JUCE_SOURCE_DIR=<JUCE> -DDPWIM_VST2_SDK_PATH=<VST2_SDK> -DDPWIM_BUILD_TESTS=ON
+    proves: The configured source tree and separately supplied JUCE/VST2 SDK inputs are coherent.
+  - command: cmake --build build --config Release --parallel
+    proves: The Windows x64 plugin formats and registered test target compile.
+  - command: ctest --test-dir build -C Release --output-on-failure
+    proves: The deterministic delay, offset direction, PLL bounds, FIFO wrap, and overflow recovery tests pass.
+  - command: build/Release/dpwim-loopback-smoke.exe
+    proves: Windows process-loopback activation captures frames and non-zero energy from a real rendered test tone.
+  - command: build/Release/dpwim-plugin-probe.exe <VST3> <VST2>
+    proves: JUCE scans and instantiates both plugin formats; dry delay matches reported latency and state round-trip succeeds.
+  - command: python C:/Users/livet/Desktop/spec-driven-ai-development/scripts/sdad.py doctor . --require-version 3.2.2 --strict
+    proves: The DPWIM SDAD v3.2.2 control plane is structurally coherent.
+  - command: git diff --check
+    proves: Tracked text changes contain no whitespace errors.
+
+routed_docs:
+  - SPEC/SPEC-COMPLETE.md
+  - docs/TODO-Open-Items.md
+  - review-findings.md
+  - docs/implementation-notes.md
