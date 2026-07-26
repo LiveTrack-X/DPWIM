@@ -43,12 +43,12 @@ Windows x64 VST2/VST3 플러그인입니다.
 가상 오디오 장치 없이 사용할 수 있습니다. 현재 GPL-3.0 기반의 무료 공개
 프리뷰입니다.
 
-**[Download DPWIM v0.2.2 / DPWIM v0.2.2 다운로드](https://github.com/LiveTrack-X/DPWIM/releases/tag/v0.2.2)**
+**[Download DPWIM v0.2.3 / DPWIM v0.2.3 다운로드](https://github.com/LiveTrack-X/DPWIM/releases/tag/v0.2.3)**
 
-Status: `v0.2.2` public preview. It is locally software-verified, but unsigned,
+Status: `v0.2.3` public preview. It is locally software-verified, but unsigned,
 not DAW-matrix-tested, and not claimed production-ready.
 
-상태: `v0.2.2` 공개 프리뷰입니다. 로컬 소프트웨어 검증은 통과했지만
+상태: `v0.2.3` 공개 프리뷰입니다. 로컬 소프트웨어 검증은 통과했지만
 코드 서명과 광범위한 DAW 호환성 검증은 아직 완료되지 않았습니다.
 
 ## Signal flow
@@ -66,6 +66,7 @@ normal 64-bit VST2/VST3 effect.
 ## Current controls
 
 - Target Latency: one common 10-250 ms timeline for dry and captured sources.
+- Dry Input ON/OFF: mute the upstream/microphone path without stopping app capture.
 - Dry Gain: independent level for the upstream/microphone path.
 - Four source slots: one selected application or desktop capture.
 - Per-source ON/OFF: suspend capture and mixing without losing the selection.

@@ -102,6 +102,7 @@ private:
 
     juce::AudioProcessorValueTreeState apvts_;
     std::atomic<float>* targetLatencyParam_ = nullptr;
+    std::atomic<float>* dryEnabledParam_ = nullptr;
     std::atomic<float>* dryGainParam_ = nullptr;
     std::array<std::atomic<float>*, kSourceSlots> sourceGainParams_{};
     std::array<std::atomic<float>*, kSourceSlots> sourceOffsetParams_{};

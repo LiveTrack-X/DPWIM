@@ -2,6 +2,21 @@
 
 All notable changes to DPWIM are documented here.
 
+## [0.2.3] - 2026-07-26
+
+### Added
+
+- Independent Dry Input ON/OFF control for the upstream or microphone path.
+- Host-automatable and state-persistent `Dry Input Enabled` parameter.
+- Hosted VST2/VST3 coverage proving Dry Input defaults ON and produces silence
+  when disabled.
+
+### Changed
+
+- Dry Gain controls are dimmed while Dry Input is disabled.
+- Application and desktop capture sources continue mixing when Dry Input is
+  disabled.
+
 ## [0.2.2] - 2026-07-26
 
 ### Added

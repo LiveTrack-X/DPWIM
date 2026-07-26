@@ -264,6 +264,8 @@ DPWIMAudioProcessorEditor::DPWIMAudioProcessorEditor(
     configureRotary(dryGain_, " dB", 104);
     configureRotary(targetLatency_, " ms", 104);
     addAndMakeVisible(dryTitle_);
+    dryPower_.setClickingTogglesState(true);
+    addAndMakeVisible(dryPower_);
     addAndMakeVisible(dryGainLabel_);
     addAndMakeVisible(dryGain_);
     addAndMakeVisible(targetLabel_);
@@ -273,6 +275,9 @@ DPWIMAudioProcessorEditor::DPWIMAudioProcessorEditor(
     targetAttachment_ = std::make_unique<
         juce::AudioProcessorValueTreeState::SliderAttachment>(
         state, "targetLatency", targetLatency_);
+    dryEnabledAttachment_ = std::make_unique<
+        juce::AudioProcessorValueTreeState::ButtonAttachment>(
+        state, "dryEnabled", dryPower_);
     dryAttachment_ = std::make_unique<
         juce::AudioProcessorValueTreeState::SliderAttachment>(
         state, "dryGain", dryGain_);
@@ -449,7 +454,11 @@ void DPWIMAudioProcessorEditor::resized()
         static_cast<int>(
             std::round(body.getWidth() * 0.195)));
     auto master = body.removeFromLeft(masterWidth).reduced(14, 10);
-    dryTitle_.setBounds(master.removeFromTop(34));
+    auto dryHeader = master.removeFromTop(34);
+    dryPower_.setBounds(
+        dryHeader.removeFromRight(52).reduced(0, 2));
+    dryHeader.removeFromRight(4);
+    dryTitle_.setBounds(dryHeader);
     master.removeFromTop(8);
     dryGainLabel_.setBounds(master.removeFromTop(22));
     dryGain_.setBounds(master.removeFromTop(
@@ -574,6 +583,16 @@ void DPWIMAudioProcessorEditor::timerCallback()
             std::llround(rate / 1000.0)))
             + " kHz",
         juce::dontSendNotification);
+
+    const bool dryEnabled = dryPower_.getToggleState();
+    dryPower_.setButtonText(dryEnabled ? "ON" : "OFF");
+    dryPower_.setColour(
+        juce::TextButton::textColourOffId,
+        juce::Colour(dryEnabled ? accent : secondary));
+    dryGain_.setEnabled(dryEnabled);
+    dryGainLabel_.setColour(
+        juce::Label::textColourId,
+        juce::Colour(dryEnabled ? secondary : disabled));
 
     for (int index = 0;
          index < static_cast<int>(rows_.size()); ++index) {

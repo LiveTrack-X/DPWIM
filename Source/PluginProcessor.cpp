@@ -24,6 +24,7 @@ DPWIMAudioProcessor::DPWIMAudioProcessor()
     , apvts_(*this, nullptr, "DPWIM", createParameterLayout())
 {
     targetLatencyParam_ = apvts_.getRawParameterValue("targetLatency");
+    dryEnabledParam_ = apvts_.getRawParameterValue("dryEnabled");
     dryGainParam_ = apvts_.getRawParameterValue("dryGain");
     for (int index = 0; index < kSourceSlots; ++index) {
         slots_[static_cast<std::size_t>(index)] =
@@ -60,6 +61,8 @@ DPWIMAudioProcessor::createParameterLayout()
         juce::ParameterID{"targetLatency", 1}, "Target Latency",
         juce::NormalisableRange<float>(10.0f, 250.0f, 0.1f), 10.0f,
         juce::AudioParameterFloatAttributes().withLabel("ms")));
+    parameters.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{"dryEnabled", 1}, "Dry Input Enabled", true));
     parameters.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"dryGain", 1}, "Dry Gain",
         juce::NormalisableRange<float>(-60.0f, 12.0f, 0.1f), 0.0f,
@@ -124,8 +127,14 @@ void DPWIMAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     if (channels <= 0 || frames <= 0)
         return;
 
-    const float dryDb = dryGainParam_->load(std::memory_order_relaxed);
-    buffer.applyGain(dbToGain(dryDb));
+    const bool dryEnabled =
+        dryEnabledParam_->load(std::memory_order_relaxed) >= 0.5f;
+    if (dryEnabled) {
+        const float dryDb = dryGainParam_->load(std::memory_order_relaxed);
+        buffer.applyGain(dbToGain(dryDb));
+    } else {
+        buffer.clear();
+    }
 
     const float targetMs =
         targetLatencyParam_->load(std::memory_order_relaxed);

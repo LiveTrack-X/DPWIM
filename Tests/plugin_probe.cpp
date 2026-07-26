@@ -26,6 +26,20 @@ bool checkDefault(juce::AudioPluginInstance& instance,
     return false;
 }
 
+bool setParameter(juce::AudioPluginInstance& instance,
+                  const juce::String& parameterName,
+                  float normalizedValue)
+{
+    for (auto* parameter : instance.getParameters()) {
+        if (parameter->getName(128) != parameterName)
+            continue;
+        parameter->setValueNotifyingHost(normalizedValue);
+        return true;
+    }
+    std::cerr << "Missing parameter " << parameterName << '\n';
+    return false;
+}
+
 bool probe(juce::AudioPluginFormat& format, const juce::String& path)
 {
     juce::OwnedArray<juce::PluginDescription> descriptions;
@@ -47,6 +61,9 @@ bool probe(juce::AudioPluginFormat& format, const juce::String& path)
 
     instance->setPlayConfigDetails(2, 2, 48000.0, 512);
     bool defaultsOk = checkDefault(*instance, "Target Latency", 0.0f);
+    defaultsOk =
+        checkDefault(*instance, "Dry Input Enabled", 1.0f)
+        && defaultsOk;
     for (int slot = 0; slot < 4; ++slot)
         defaultsOk = checkDefault(
             *instance,
@@ -80,6 +97,25 @@ bool probe(juce::AudioPluginFormat& format, const juce::String& path)
     const int latency = instance->getLatencySamples();
     const bool dryAligned = impulseOutputFrame == latency;
 
+    const bool dryParameterFound =
+        setParameter(*instance, "Dry Input Enabled", 0.0f);
+    bool dryOffSilent = dryParameterFound;
+    for (int block = 0; block < 2; ++block) {
+        audio.clear();
+        if (block == 0) {
+            audio.setSample(0, 0, 0.25f);
+            audio.setSample(1, 0, 0.25f);
+        }
+        instance->processBlock(audio, midi);
+        for (int channel = 0; channel < audio.getNumChannels(); ++channel) {
+            for (int frame = 0; frame < audio.getNumSamples(); ++frame)
+                dryOffSilent =
+                    dryOffSilent
+                    && std::abs(audio.getSample(channel, frame)) < 1.0e-6f;
+        }
+    }
+    setParameter(*instance, "Dry Input Enabled", 1.0f);
+
     bool stateRoundTrip = false;
     if (auto parameters = instance->getParameters();
         !parameters.isEmpty()) {
@@ -98,10 +134,13 @@ bool probe(juce::AudioPluginFormat& format, const juce::String& path)
     std::cout << format.getName() << ": "
               << descriptions[0]->name << ", latency="
               << latency << " samples, dry_impulse="
-              << impulseOutputFrame << ", state="
+              << impulseOutputFrame << ", dry_off="
+              << (dryOffSilent ? "silent" : "audible")
+              << ", state="
               << (stateRoundTrip ? "restored" : "failed") << '\n';
     instance->releaseResources();
-    return finite && dryAligned && stateRoundTrip && defaultsOk;
+    return finite && dryAligned && dryOffSilent && stateRoundTrip
+        && defaultsOk;
 }
 
 } // namespace

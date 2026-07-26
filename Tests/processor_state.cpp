@@ -48,6 +48,7 @@ int main()
     DPWIMAudioProcessor source;
 
     checkValue(source, "targetLatency", 10.0f);
+    checkValue(source, "dryEnabled", 1.0f);
     for (int slot = 0; slot < DPWIMAudioProcessor::kSourceSlots; ++slot)
         checkValue(
             source, "sourceGain" + juce::String(slot), 0.0f);
@@ -57,6 +58,7 @@ int main()
         4242, "example.exe");
     source.setSourceEnabled(1, false);
     setPlainValue(source, "targetLatency", 50.0f);
+    setPlainValue(source, "dryEnabled", 0.0f);
     setPlainValue(source, "sourceGain1", -6.0f);
     const auto disabled = source.sourceSnapshot(1);
     check(disabled.mode == DPWIMAudioProcessor::SourceMode::Application,
@@ -80,6 +82,7 @@ int main()
     check(!restoredSnapshot.enabled,
           "disabled state round-trips");
     checkValue(restored, "targetLatency", 50.0f);
+    checkValue(restored, "dryEnabled", 0.0f);
     checkValue(restored, "sourceGain1", -6.0f);
 
     restored.setSourceEnabled(1, true);

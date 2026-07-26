@@ -53,6 +53,7 @@ private:
     juce::TextButton refreshButton_{"Refresh apps"};
 
     juce::Label dryTitle_;
+    juce::TextButton dryPower_{"ON"};
     juce::Label dryGainLabel_;
     juce::Slider dryGain_;
     juce::Label targetLabel_;
@@ -61,6 +62,9 @@ private:
     std::unique_ptr<
         juce::AudioProcessorValueTreeState::SliderAttachment>
         targetAttachment_;
+    std::unique_ptr<
+        juce::AudioProcessorValueTreeState::ButtonAttachment>
+        dryEnabledAttachment_;
     std::unique_ptr<
         juce::AudioProcessorValueTreeState::SliderAttachment>
         dryAttachment_;
