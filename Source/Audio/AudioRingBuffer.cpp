@@ -20,6 +20,16 @@ void AudioRingBuffer::reset() noexcept
     readFrame_ = 0.0;
     primed_ = false;
     ratio_ = 1.0;
+    fadeTotal_ = 0;
+    fadeRemaining_ = 0;
+}
+
+void AudioRingBuffer::reprime(std::uint32_t fadeFrames) noexcept
+{
+    primed_ = false;
+    ratio_ = 1.0;
+    fadeTotal_ = fadeFrames;
+    fadeRemaining_ = fadeFrames;
 }
 
 void AudioRingBuffer::write(const float* interleaved, std::uint32_t frames,
@@ -100,6 +110,13 @@ AudioRingBuffer::RenderResult AudioRingBuffer::renderAdd(
             static_cast<std::size_t>(base % capacityFrames_) * channels_;
         const auto nextIndex =
             static_cast<std::size_t>(next % capacityFrames_) * channels_;
+        float transitionGain = 1.0f;
+        if (fadeRemaining_ > 0 && fadeTotal_ > 0) {
+            transitionGain =
+                static_cast<float>(fadeTotal_ - fadeRemaining_ + 1)
+                / static_cast<float>(fadeTotal_);
+            --fadeRemaining_;
+        }
 
         if (outputChannels == 1 && channels_ >= 2) {
             const float left =
@@ -107,7 +124,8 @@ AudioRingBuffer::RenderResult AudioRingBuffer::renderAdd(
             const float right =
                 data_[baseIndex + 1]
                 + (data_[nextIndex + 1] - data_[baseIndex + 1]) * fraction;
-            outputs[0][frame] += 0.5f * (left + right) * gain;
+            outputs[0][frame] +=
+                0.5f * (left + right) * gain * transitionGain;
         } else {
             for (int channel = 0; channel < outputChannels; ++channel) {
                 const auto sourceChannel =
@@ -116,7 +134,8 @@ AudioRingBuffer::RenderResult AudioRingBuffer::renderAdd(
                 const float a = data_[baseIndex + sourceChannel];
                 const float b = data_[nextIndex + sourceChannel];
                 outputs[channel][frame] +=
-                    (a + (b - a) * fraction) * gain;
+                    (a + (b - a) * fraction)
+                    * gain * transitionGain;
             }
         }
 

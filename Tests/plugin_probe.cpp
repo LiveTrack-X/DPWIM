@@ -60,9 +60,12 @@ bool probe(juce::AudioPluginFormat& format, const juce::String& path)
     }
 
     instance->setPlayConfigDetails(2, 2, 48000.0, 512);
-    bool defaultsOk = checkDefault(*instance, "Target Latency", 0.0f);
+    bool defaultsOk = checkDefault(*instance, "Base Latency", 0.0f);
     defaultsOk =
         checkDefault(*instance, "Dry Input Enabled", 1.0f)
+        && defaultsOk;
+    defaultsOk =
+        checkDefault(*instance, "Bypass", 0.0f)
         && defaultsOk;
     for (int slot = 0; slot < 4; ++slot)
         defaultsOk = checkDefault(
@@ -70,6 +73,18 @@ bool probe(juce::AudioPluginFormat& format, const juce::String& path)
             "Source " + juce::String(slot + 1) + " Gain",
             60.0f / 72.0f)
             && defaultsOk;
+    for (int slot = 0; slot < 4; ++slot) {
+        defaultsOk = checkDefault(
+            *instance,
+            "Source " + juce::String(slot + 1) + " Transpose",
+            0.5f)
+            && defaultsOk;
+        defaultsOk = checkDefault(
+            *instance,
+            "Source " + juce::String(slot + 1) + " Fine Pitch",
+            0.5f)
+            && defaultsOk;
+    }
     instance->prepareToPlay(48000.0, 512);
     juce::AudioBuffer<float> audio(2, 512);
     juce::MidiBuffer midi;
@@ -114,7 +129,37 @@ bool probe(juce::AudioPluginFormat& format, const juce::String& path)
                     && std::abs(audio.getSample(channel, frame)) < 1.0e-6f;
         }
     }
+    const bool bypassParameterFound =
+        setParameter(*instance, "Bypass", 1.0f);
+    instance->releaseResources();
+    instance->prepareToPlay(48000.0, 512);
+    const int bypassLatency = instance->getLatencySamples();
+    int bypassImpulseFrame = -1;
+    float bypassImpulseValue = 0.0f;
+    for (int block = 0; block < 2; ++block) {
+        audio.clear();
+        if (block == 0) {
+            audio.setSample(0, 0, 0.25f);
+            audio.setSample(1, 0, 0.25f);
+        }
+        instance->processBlock(audio, midi);
+        for (int frame = 0; frame < audio.getNumSamples(); ++frame) {
+            if (bypassImpulseFrame < 0
+                && std::abs(audio.getSample(0, frame)) > 0.2f) {
+                bypassImpulseFrame = block * 512 + frame;
+                bypassImpulseValue = audio.getSample(0, frame);
+            }
+        }
+    }
+    const bool bypassImmediate =
+        bypassParameterFound
+        && bypassLatency == 0
+        && bypassImpulseFrame == 0
+        && std::abs(bypassImpulseValue - 0.25f) < 0.001f;
+    setParameter(*instance, "Bypass", 0.0f);
     setParameter(*instance, "Dry Input Enabled", 1.0f);
+    instance->releaseResources();
+    instance->prepareToPlay(48000.0, 512);
 
     bool stateRoundTrip = false;
     if (auto parameters = instance->getParameters();
@@ -136,11 +181,13 @@ bool probe(juce::AudioPluginFormat& format, const juce::String& path)
               << latency << " samples, dry_impulse="
               << impulseOutputFrame << ", dry_off="
               << (dryOffSilent ? "silent" : "audible")
+              << ", bypass="
+              << (bypassImmediate ? "immediate" : "failed")
               << ", state="
               << (stateRoundTrip ? "restored" : "failed") << '\n';
     instance->releaseResources();
-    return finite && dryAligned && dryOffSilent && stateRoundTrip
-        && defaultsOk;
+    return finite && dryAligned && dryOffSilent && bypassImmediate
+        && stateRoundTrip && defaultsOk;
 }
 
 } // namespace

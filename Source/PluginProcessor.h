@@ -4,6 +4,8 @@
 
 #include "Audio/AudioRingBuffer.h"
 #include "Audio/DryDelay.h"
+#include "Audio/SyncTimeline.h"
+#include "DSP/PhaseVocoderPitchShifter.h"
 #include "Platform/ProcessCatalog.h"
 #include "Platform/ProcessLoopbackCapture.h"
 
@@ -34,12 +36,31 @@ public:
         double ratio = 1.0;
     };
 
+    struct LatencySnapshot {
+        double targetMs = 0.0;
+        double syncAdditionMs = 0.0;
+        double effectiveMs = 0.0;
+        int samples = 0;
+    };
+
+    struct LevelSnapshot {
+        std::array<float, 2> dry{};
+        std::array<std::array<float, 2>, kSourceSlots> sources{};
+        std::array<float, 2> mainOutput{};
+    };
+
     DPWIMAudioProcessor();
     ~DPWIMAudioProcessor() override;
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
     void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
+    void processBlockBypassed(
+        juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
+    juce::AudioProcessorParameter* getBypassParameter() const override
+    {
+        return bypassParameter_;
+    }
 
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
@@ -68,6 +89,8 @@ public:
     {
         return sampleRate_.load(std::memory_order_acquire);
     }
+    LatencySnapshot latencySnapshot() const noexcept;
+    LevelSnapshot levelSnapshot() const noexcept;
     std::vector<dpwim::ProcessInfo> enumerateProcesses() const;
 
     void setSource(int slot, SourceMode mode, std::uint32_t pid,
@@ -78,12 +101,17 @@ public:
 private:
     struct SourceSlot {
         dpwim::AudioRingBuffer ring;
+        dpwim::PhaseVocoderPitchShifter pitchShifter;
+        juce::AudioBuffer<float> scratch;
         dpwim::ProcessLoopbackCapture capture;
         std::atomic<int> mode{static_cast<int>(SourceMode::Off)};
         std::atomic<bool> enabled{false};
         std::atomic<std::uint32_t> pid{0};
         std::atomic<double> fillFrames{0.0};
         std::atomic<double> ratio{1.0};
+        std::array<std::atomic<float>, 2> meterPeaks{};
+        bool lastPitchActive = false;
+        double lastRequestedFillFrames = -1.0;
         mutable std::mutex identityMutex;
         juce::String executable;
     };
@@ -92,6 +120,8 @@ private:
     createParameterLayout();
     static juce::String gainParameter(int slot);
     static juce::String offsetParameter(int slot);
+    static juce::String transposeParameter(int slot);
+    static juce::String finePitchParameter(int slot);
 
     void startSlot(int slot);
     void stopAllSlots() noexcept;
@@ -99,16 +129,28 @@ private:
     juce::ValueTree createSourceState() const;
     void timerCallback() override;
     void updateLatencyReport();
+    dpwim::SyncTimelinePlan currentTimeline() const noexcept;
+    void processAudioBlock(
+        juce::AudioBuffer<float>&, bool forceBypass);
+    static void updateMeterPeak(
+        std::atomic<float>& meter, float peak, float release) noexcept;
 
     juce::AudioProcessorValueTreeState apvts_;
     std::atomic<float>* targetLatencyParam_ = nullptr;
     std::atomic<float>* dryEnabledParam_ = nullptr;
     std::atomic<float>* dryGainParam_ = nullptr;
+    std::atomic<float>* bypassParam_ = nullptr;
+    juce::RangedAudioParameter* bypassParameter_ = nullptr;
     std::array<std::atomic<float>*, kSourceSlots> sourceGainParams_{};
     std::array<std::atomic<float>*, kSourceSlots> sourceOffsetParams_{};
+    std::array<std::atomic<float>*, kSourceSlots> sourceTransposeParams_{};
+    std::array<std::atomic<float>*, kSourceSlots> sourceFinePitchParams_{};
     std::array<std::unique_ptr<SourceSlot>, kSourceSlots> slots_;
     dpwim::DryDelay dryDelay_;
+    std::array<std::atomic<float>, 2> dryMeterPeaks_{};
+    std::array<std::atomic<float>, 2> mainOutputMeterPeaks_{};
     std::atomic<bool> prepared_{false};
+    std::atomic<bool> hostBypassActive_{false};
     std::atomic<double> sampleRate_{48000.0};
     std::atomic<int> lastReportedLatency_{-1};
 

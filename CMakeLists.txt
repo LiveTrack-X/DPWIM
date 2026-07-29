@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(DPWIM VERSION 0.2.3 LANGUAGES CXX)
+project(DPWIM VERSION 0.3.0 LANGUAGES CXX)
 
 if(NOT WIN32)
     message(FATAL_ERROR "DPWIM currently supports Windows only.")
@@ -50,6 +50,8 @@ add_library(dpwim_core STATIC
     Source/Audio/AudioRingBuffer.cpp
     Source/Audio/DryDelay.h
     Source/Audio/DryDelay.cpp
+    Source/Audio/SyncTimeline.h
+    Source/Audio/SyncTimeline.cpp
     Source/Platform/ProcessCatalog.h
     Source/Platform/ProcessCatalog.cpp
     Source/Platform/ProcessLoopbackCapture.h
@@ -84,6 +86,10 @@ juce_add_plugin(DPWIM
 )
 
 target_sources(DPWIM PRIVATE
+    Source/DSP/PhaseVocoderPitchShifter.h
+    Source/DSP/PhaseVocoderPitchShifter.cpp
+    Source/Platform/UpdateChecker.h
+    Source/Platform/UpdateChecker.cpp
     Source/PluginProcessor.h
     Source/PluginProcessor.cpp
     Source/PluginEditor.h
@@ -101,6 +107,7 @@ target_compile_definitions(DPWIM PUBLIC
 
 target_link_libraries(DPWIM PRIVATE
     dpwim_core
+    winhttp
     juce::juce_audio_utils
     juce::juce_dsp
     juce::juce_recommended_config_flags

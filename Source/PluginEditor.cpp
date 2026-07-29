@@ -16,6 +16,20 @@ constexpr auto foreground = 0xffeef3f5;
 constexpr auto secondary = 0xffb7c0c5;
 constexpr auto disabled = 0xff6e787e;
 constexpr auto accent = 0xff41c7f2;
+constexpr auto updateAccent = 0xffffa726;
+constexpr auto clipRed = 0xffef5350;
+constexpr auto baseLatencyTooltip =
+    "The base delay reserved for stable app capture and input alignment. "
+    "Lower values reduce latency but may increase dropouts. Negative Sync "
+    "Offsets automatically increase the OUT Latency.";
+constexpr auto outputLatencyTooltip =
+    "Output latency equals the Base Latency plus any automatic sync addition. "
+    "The sample count is the latency reported to the host at the current "
+    "sample rate.";
+constexpr auto syncOffsetTooltip =
+    "Moves this source relative to the shared timeline. Negative values make "
+    "it earlier by delaying the other paths. Positive values delay only this "
+    "source.";
 
 void configureLabel(juce::Label& label, const juce::String& text,
                     float size, int style,
@@ -195,14 +209,18 @@ public:
     {
         auto bounds = button.getLocalBounds().toFloat().reduced(0.5f);
         const bool toggled = button.getToggleState();
+        const auto activeColour =
+            button.getComponentID() == "globalBypass"
+            ? juce::Colour(updateAccent)
+            : juce::Colour(accent);
         const auto fill = toggled
-            ? juce::Colour(accent).withAlpha(down ? 0.26f : 0.16f)
+            ? activeColour.withAlpha(down ? 0.26f : 0.16f)
             : down ? juce::Colour(raised) : juce::Colour(control);
         graphics.setColour(
             highlighted ? fill.brighter(0.08f) : fill);
         graphics.fillRoundedRectangle(bounds, 5.0f);
         graphics.setColour(
-            toggled || highlighted ? juce::Colour(accent)
+            toggled || highlighted ? activeColour
                                    : juce::Colour(border));
         graphics.drawRoundedRectangle(bounds, 5.0f, 1.0f);
     }
@@ -214,7 +232,343 @@ public:
     }
 };
 
+class SourceAdvancedPanel final : public juce::Component {
+public:
+    SourceAdvancedPanel(
+        DPWIMAudioProcessor& processor, int sourceIndex)
+        : processor_(processor)
+        , sourceIndex_(sourceIndex)
+    {
+        configureLabel(
+            title_,
+            "Source " + juce::String(sourceIndex + 1) + " Advanced",
+            18.0f, juce::Font::bold,
+            juce::Justification::centredLeft);
+        configureLabel(
+            description_,
+            "Live source pitch controls.",
+            13.0f, juce::Font::plain,
+            juce::Justification::centredLeft);
+        configureLabel(
+            transposeLabel_, "Transpose (semitones)",
+            13.0f, juce::Font::plain,
+            juce::Justification::centredLeft);
+        configureLabel(
+            finePitchLabel_, "Fine Pitch (cents)",
+            13.0f, juce::Font::plain,
+            juce::Justification::centredLeft);
+        description_.setColour(
+            juce::Label::textColourId, juce::Colour(secondary));
+        transposeLabel_.setColour(
+            juce::Label::textColourId, juce::Colour(secondary));
+        finePitchLabel_.setColour(
+            juce::Label::textColourId, juce::Colour(secondary));
+        for (auto* slider : {&transpose_, &finePitch_}) {
+            slider->setSliderStyle(juce::Slider::LinearHorizontal);
+            slider->setTextBoxStyle(
+                juce::Slider::TextBoxRight, false, 74, 26);
+            slider->setDoubleClickReturnValue(true, 0.0);
+            slider->setColour(
+                juce::Slider::trackColourId, juce::Colour(accent));
+            slider->setColour(
+                juce::Slider::backgroundColourId,
+                juce::Colour(control));
+            slider->setColour(
+                juce::Slider::thumbColourId, juce::Colour(accent));
+            slider->setColour(
+                juce::Slider::textBoxTextColourId,
+                juce::Colour(foreground));
+            slider->setColour(
+                juce::Slider::textBoxBackgroundColourId,
+                juce::Colour(control));
+            slider->setColour(
+                juce::Slider::textBoxOutlineColourId,
+                juce::Colour(border));
+        }
+        transpose_.setTextValueSuffix(" st");
+        finePitch_.setTextValueSuffix(" ct");
+        auto& state = processor_.parameters();
+        transposeAttachment_ = std::make_unique<
+            juce::AudioProcessorValueTreeState::SliderAttachment>(
+            state, "sourceTranspose" + juce::String(sourceIndex_),
+            transpose_);
+        finePitchAttachment_ = std::make_unique<
+            juce::AudioProcessorValueTreeState::SliderAttachment>(
+            state, "sourceFinePitch" + juce::String(sourceIndex_),
+            finePitch_);
+        resetPitch_.setButtonText("Reset Pitch");
+        resetPitch_.onClick = [this] {
+            auto& state = processor_.parameters();
+            for (const auto& id : {
+                     "sourceTranspose" + juce::String(sourceIndex_),
+                     "sourceFinePitch" + juce::String(sourceIndex_)}) {
+                if (auto* parameter = state.getParameter(id))
+                    parameter->setValueNotifyingHost(
+                        parameter->convertTo0to1(0.0f));
+            }
+        };
+        addAndMakeVisible(title_);
+        addAndMakeVisible(description_);
+        addAndMakeVisible(transposeLabel_);
+        addAndMakeVisible(transpose_);
+        addAndMakeVisible(finePitchLabel_);
+        addAndMakeVisible(finePitch_);
+        addAndMakeVisible(resetPitch_);
+        setSize(360, 240);
+    }
+
+    void paint(juce::Graphics& graphics) override
+    {
+        graphics.fillAll(juce::Colour(raised));
+        graphics.setColour(juce::Colour(divider));
+        graphics.drawRoundedRectangle(
+            getLocalBounds().toFloat().reduced(0.5f), 7.0f, 1.0f);
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced(16, 12);
+        title_.setBounds(area.removeFromTop(28));
+        description_.setBounds(area.removeFromTop(24));
+        area.removeFromTop(8);
+        transposeLabel_.setBounds(area.removeFromTop(20));
+        transpose_.setBounds(area.removeFromTop(38));
+        finePitchLabel_.setBounds(area.removeFromTop(20));
+        finePitch_.setBounds(area.removeFromTop(38));
+        area.removeFromTop(6);
+        auto actions = area.removeFromTop(34);
+        resetPitch_.setBounds(actions.removeFromLeft(112));
+    }
+
+private:
+    DPWIMAudioProcessor& processor_;
+    int sourceIndex_ = 0;
+    juce::Label title_;
+    juce::Label description_;
+    juce::Label transposeLabel_;
+    juce::Slider transpose_;
+    juce::Label finePitchLabel_;
+    juce::Slider finePitch_;
+    juce::TextButton resetPitch_;
+    std::unique_ptr<
+        juce::AudioProcessorValueTreeState::SliderAttachment>
+        transposeAttachment_;
+    std::unique_ptr<
+        juce::AudioProcessorValueTreeState::SliderAttachment>
+        finePitchAttachment_;
+};
+
 } // namespace
+
+void DPWIMLevelMeter::setLevels(float left, float right)
+{
+    const std::array<float, 2> gains{left, right};
+    for (std::size_t channel = 0; channel < gains.size(); ++channel) {
+        const auto gain = std::max(0.0f, gains[channel]);
+        levelsDb_[channel] =
+            juce::Decibels::gainToDecibels(gain, -60.0f);
+        if (levelsDb_[channel] >= heldDb_[channel]) {
+            heldDb_[channel] = levelsDb_[channel];
+            holdTicks_[channel] = 5;
+        } else if (holdTicks_[channel] > 0) {
+            --holdTicks_[channel];
+        } else {
+            heldDb_[channel] = std::max(
+                levelsDb_[channel], heldDb_[channel] - 3.0f);
+        }
+        if (gain >= 1.0f)
+            clipTicks_[channel] = 10;
+        else if (clipTicks_[channel] > 0)
+            --clipTicks_[channel];
+    }
+    repaint();
+}
+
+void DPWIMLevelMeter::paint(juce::Graphics& graphics)
+{
+    if (layout_ == Layout::Vertical)
+        paintVertical(graphics);
+    else
+        paintHorizontal(graphics);
+}
+
+void DPWIMLevelMeter::paintHorizontal(juce::Graphics& graphics)
+{
+    constexpr float minimumDb = -60.0f;
+    auto bounds = getLocalBounds().toFloat();
+    if (bounds.getWidth() < 24.0f || bounds.getHeight() < 20.0f)
+        return;
+
+    graphics.setOpacity(isEnabled() ? 1.0f : 0.38f);
+    constexpr float channelLabelWidth = 10.0f;
+    constexpr float barHeight = 4.0f;
+    constexpr float barGap = 2.0f;
+    constexpr float scaleHeight = 12.0f;
+    const auto barLeft = bounds.getX() + channelLabelWidth;
+    const auto barWidth = bounds.getWidth() - channelLabelWidth;
+    const auto barTop = bounds.getY() + 1.0f;
+    const auto positionForDb =
+        [barLeft, barWidth, minimumDb](float db) {
+        return barLeft
+            + barWidth
+                * juce::jlimit(0.0f, 1.0f,
+                    (db - minimumDb) / -minimumDb);
+    };
+
+    graphics.setFont(juce::Font(8.5f));
+    for (std::size_t channel = 0; channel < levelsDb_.size();
+         ++channel) {
+        const auto y = barTop
+            + static_cast<float>(channel) * (barHeight + barGap);
+        graphics.setColour(juce::Colour(secondary));
+        graphics.drawText(
+            channel == 0 ? "L" : "R",
+            juce::Rectangle<float>(
+                bounds.getX(), y - 2.0f,
+                channelLabelWidth - 2.0f, barHeight + 4.0f),
+            juce::Justification::centredLeft, false);
+
+        const juce::Rectangle<float> track(
+            barLeft, y, barWidth, barHeight);
+        graphics.setColour(juce::Colour(control));
+        graphics.fillRoundedRectangle(track, 1.5f);
+        const auto levelRight = positionForDb(levelsDb_[channel]);
+        if (levelRight > barLeft) {
+            auto fill = track.withWidth(levelRight - barLeft);
+            graphics.setColour(
+                juce::Colour(
+                    levelsDb_[channel] >= -6.0f
+                        ? updateAccent : accent));
+            graphics.fillRoundedRectangle(fill, 1.5f);
+        }
+
+        const auto heldX = positionForDb(heldDb_[channel]);
+        if (heldDb_[channel] > minimumDb) {
+            graphics.setColour(juce::Colour(foreground));
+            graphics.drawVerticalLine(
+                juce::roundToInt(heldX), y, y + barHeight);
+        }
+        if (clipTicks_[channel] > 0) {
+            graphics.setColour(juce::Colour(clipRed));
+            graphics.fillRect(juce::Rectangle<float>(
+                track.getRight() - 2.0f, track.getY(),
+                2.0f, track.getHeight()));
+        }
+    }
+
+    const auto scaleY =
+        bounds.getBottom() - scaleHeight;
+    const std::array<float, 5> ticks{
+        -48.0f, -24.0f, -12.0f, -6.0f, 0.0f};
+    const bool showMinusSix = barWidth >= 170.0f;
+    for (const auto db : ticks) {
+        if (db == -6.0f && !showMinusSix)
+            continue;
+        const auto x = positionForDb(db);
+        graphics.setColour(juce::Colour(divider));
+        graphics.drawVerticalLine(
+            juce::roundToInt(x), scaleY, scaleY + 2.0f);
+        const auto text = juce::String(static_cast<int>(db));
+        juce::Rectangle<float> textBounds(
+            x - 11.0f, scaleY + 1.0f, 22.0f, scaleHeight - 1.0f);
+        auto justification = juce::Justification::centred;
+        if (db == 0.0f) {
+            textBounds.setRight(barLeft + barWidth);
+            justification = juce::Justification::centredRight;
+        }
+        graphics.setColour(juce::Colour(disabled));
+        graphics.drawText(
+            text, textBounds, justification, false);
+    }
+}
+
+void DPWIMLevelMeter::paintVertical(juce::Graphics& graphics)
+{
+    constexpr float minimumDb = -60.0f;
+    auto bounds = getLocalBounds().toFloat();
+    if (bounds.getWidth() < 30.0f || bounds.getHeight() < 60.0f)
+        return;
+
+    graphics.setOpacity(isEnabled() ? 1.0f : 0.38f);
+    constexpr float scaleWidth = 19.0f;
+    constexpr float channelLabelHeight = 12.0f;
+    constexpr float barGap = 3.0f;
+    auto meterBounds = bounds.withTrimmedBottom(channelLabelHeight);
+    const auto barsLeft = meterBounds.getX() + scaleWidth + 2.0f;
+    const auto barsWidth =
+        meterBounds.getRight() - barsLeft;
+    const auto barWidth = (barsWidth - barGap) * 0.5f;
+    const auto barTop = meterBounds.getY() + 2.0f;
+    const auto barBottom = meterBounds.getBottom() - 2.0f;
+    const auto barHeight = barBottom - barTop;
+    const auto positionForDb =
+        [barTop, barBottom, barHeight, minimumDb](float db) {
+            const auto normalized = juce::jlimit(
+                0.0f, 1.0f, (db - minimumDb) / -minimumDb);
+            return barBottom - normalized * barHeight;
+        };
+
+    const std::array<float, 5> ticks{
+        -48.0f, -24.0f, -12.0f, -6.0f, 0.0f};
+    const bool showMinusSix = barHeight >= 180.0f;
+    graphics.setFont(juce::Font(8.5f));
+    for (const auto db : ticks) {
+        if (db == -6.0f && !showMinusSix)
+            continue;
+        const auto y = positionForDb(db);
+        graphics.setColour(juce::Colour(divider));
+        graphics.drawHorizontalLine(
+            juce::roundToInt(y), barsLeft - 2.0f,
+            barsLeft + barsWidth);
+        graphics.setColour(juce::Colour(disabled));
+        graphics.drawText(
+            juce::String(static_cast<int>(db)),
+            juce::Rectangle<float>(
+                bounds.getX(), y - 6.0f,
+                scaleWidth - 2.0f, 12.0f),
+            juce::Justification::centredRight, false);
+    }
+
+    for (std::size_t channel = 0; channel < levelsDb_.size();
+         ++channel) {
+        const auto x = barsLeft
+            + static_cast<float>(channel) * (barWidth + barGap);
+        const juce::Rectangle<float> track(
+            x, barTop, barWidth, barHeight);
+        graphics.setColour(juce::Colour(control));
+        graphics.fillRoundedRectangle(track, 1.5f);
+
+        const auto levelTop = positionForDb(levelsDb_[channel]);
+        if (levelTop < barBottom) {
+            const juce::Rectangle<float> fill(
+                x, levelTop, barWidth, barBottom - levelTop);
+            graphics.setColour(
+                juce::Colour(
+                    levelsDb_[channel] >= -6.0f
+                        ? updateAccent : accent));
+            graphics.fillRoundedRectangle(fill, 1.5f);
+        }
+
+        const auto heldY = positionForDb(heldDb_[channel]);
+        if (heldDb_[channel] > minimumDb) {
+            graphics.setColour(juce::Colour(foreground));
+            graphics.drawHorizontalLine(
+                juce::roundToInt(heldY), x, x + barWidth);
+        }
+        if (clipTicks_[channel] > 0) {
+            graphics.setColour(juce::Colour(clipRed));
+            graphics.fillRect(x, barTop, barWidth, 2.0f);
+        }
+
+        graphics.setColour(juce::Colour(secondary));
+        graphics.drawText(
+            channel == 0 ? "L" : "R",
+            juce::Rectangle<float>(
+                x, meterBounds.getBottom(),
+                barWidth, channelLabelHeight),
+            juce::Justification::centred, false);
+    }
+}
 
 DPWIMAudioProcessorEditor::DPWIMAudioProcessorEditor(
     DPWIMAudioProcessor& processor)
@@ -227,42 +581,89 @@ DPWIMAudioProcessorEditor::DPWIMAudioProcessorEditor(
     setResizable(true, false);
     setResizeLimits(840, 520, 1280, 800);
 
-    configureLabel(markLabel_, "DPWIM", 29.0f, juce::Font::bold,
+    configureLabel(markLabel_, "DirectPipe", 27.0f, juce::Font::bold,
                    juce::Justification::centredLeft);
+    markLabel_.setMinimumHorizontalScale(0.80f);
+    markLabel_.setComponentID("brandMark");
     configureLabel(versionLabel_,
                    "v" + juce::String(ProjectInfo::versionString),
                    13.0f, juce::Font::plain,
                    juce::Justification::centred);
     versionLabel_.setColour(
         juce::Label::textColourId, juce::Colour(accent));
-    configureLabel(productLabel_, "Windows Input Mixer", 18.0f,
+    versionLabel_.setComponentID("versionContext");
+    configureLabel(productLabel_, "Windows Input Mixer (DPWIM)", 16.0f,
                    juce::Font::plain,
                    juce::Justification::centredLeft);
+    productLabel_.setMinimumHorizontalScale(0.72f);
+    productLabel_.setComponentID("productName");
     configureLabel(sampleRateLabel_, "48 kHz", 14.0f,
                    juce::Font::plain,
                    juce::Justification::centred);
     sampleRateLabel_.setColour(
         juce::Label::textColourId, juce::Colour(secondary));
+    sampleRateLabel_.setComponentID("sampleRateContext");
+    configureLabel(
+        effectiveLatencyLabel_,
+        formatLatencySummary(10.0, 0.0, 480), 12.0f,
+                   juce::Font::plain,
+                   juce::Justification::centred);
+    effectiveLatencyLabel_.setMinimumHorizontalScale(0.55f);
+    effectiveLatencyLabel_.setColour(
+        juce::Label::textColourId, juce::Colour(secondary));
+    effectiveLatencyLabel_.setComponentID("latencySummary");
+    effectiveLatencyLabel_.setTooltip(outputLatencyTooltip);
     addAndMakeVisible(markLabel_);
     addAndMakeVisible(versionLabel_);
     addAndMakeVisible(productLabel_);
     addAndMakeVisible(sampleRateLabel_);
+    addAndMakeVisible(effectiveLatencyLabel_);
+    bypassButton_.setClickingTogglesState(true);
+    bypassButton_.setComponentID("globalBypass");
+    bypassButton_.setTooltip(
+        "Immediately passes the raw host input at unity while muting captured "
+        "app sources. Plugin output latency becomes 0 samples.");
+    bypassButton_.setColour(
+        juce::TextButton::textColourOnId, juce::Colour(updateAccent));
+    addAndMakeVisible(bypassButton_);
     addAndMakeVisible(refreshButton_);
+    refreshButton_.setComponentID("refreshApps");
+
+    createdByLink_.setFont(juce::Font(11.5f), false);
+    createdByLink_.setColour(
+        juce::HyperlinkButton::textColourId, juce::Colour(disabled));
+    createdByLink_.setComponentID("createdByLiveTrack");
+    addAndMakeVisible(createdByLink_);
+
+    configureLabel(
+        mainOutputLabel_, "MAIN\nOUT", 10.5f,
+        juce::Font::bold, juce::Justification::centred);
+    mainOutputLabel_.setColour(
+        juce::Label::textColourId, juce::Colour(secondary));
+    mainOutputLabel_.setComponentID("mainOutputLabel");
+    mainOutputMeter_.setComponentID("mainOutputMeter");
+    mainOutputMeter_.setTooltip(
+        "Final post-mix stereo output peak level in dBFS.");
+    addAndMakeVisible(mainOutputLabel_);
+    addAndMakeVisible(mainOutputMeter_);
 
     configureLabel(dryTitle_, "Dry Input", 19.0f, juce::Font::bold,
                    juce::Justification::centred);
     configureLabel(dryGainLabel_, "Gain (dB)", 14.0f,
                    juce::Font::plain,
                    juce::Justification::centred);
-    configureLabel(targetLabel_, "Target Latency", 14.0f,
+    configureLabel(targetLabel_, "Base Latency", 14.0f,
                    juce::Font::plain,
                    juce::Justification::centred);
+    targetLabel_.setComponentID("baseLatencyLabel");
     dryGainLabel_.setColour(
         juce::Label::textColourId, juce::Colour(secondary));
     targetLabel_.setColour(
         juce::Label::textColourId, juce::Colour(secondary));
     configureRotary(dryGain_, " dB", 104);
     configureRotary(targetLatency_, " ms", 104);
+    targetLatency_.setComponentID("baseLatencyControl");
+    targetLatency_.setTooltip(baseLatencyTooltip);
     addAndMakeVisible(dryTitle_);
     dryPower_.setClickingTogglesState(true);
     addAndMakeVisible(dryPower_);
@@ -270,6 +671,10 @@ DPWIMAudioProcessorEditor::DPWIMAudioProcessorEditor(
     addAndMakeVisible(dryGain_);
     addAndMakeVisible(targetLabel_);
     addAndMakeVisible(targetLatency_);
+    dryMeter_.setComponentID("dryLevelMeter");
+    dryMeter_.setTooltip(
+        "Dry Input post-gain stereo peak level in dBFS.");
+    addAndMakeVisible(dryMeter_);
 
     auto& state = processor_.parameters();
     targetAttachment_ = std::make_unique<
@@ -278,6 +683,9 @@ DPWIMAudioProcessorEditor::DPWIMAudioProcessorEditor(
     dryEnabledAttachment_ = std::make_unique<
         juce::AudioProcessorValueTreeState::ButtonAttachment>(
         state, "dryEnabled", dryPower_);
+    bypassAttachment_ = std::make_unique<
+        juce::AudioProcessorValueTreeState::ButtonAttachment>(
+        state, "bypass", bypassButton_);
     dryAttachment_ = std::make_unique<
         juce::AudioProcessorValueTreeState::SliderAttachment>(
         state, "dryGain", dryGain_);
@@ -309,15 +717,25 @@ DPWIMAudioProcessorEditor::DPWIMAudioProcessorEditor(
 
         configureRotary(row.gain, " dB", 104);
         configureRotary(row.offset, " ms", 104);
+        row.offset.setComponentID(
+            "sourceSyncOffset" + juce::String(index));
+        row.offset.setTooltip(syncOffsetTooltip);
         addAndMakeVisible(row.title);
+        addAndMakeVisible(row.advanced);
         addAndMakeVisible(row.applicationLabel);
         addAndMakeVisible(row.selector);
+        addAndMakeVisible(row.selectedIcon);
         addAndMakeVisible(row.power);
         addAndMakeVisible(row.status);
         addAndMakeVisible(row.gainLabel);
         addAndMakeVisible(row.gain);
         addAndMakeVisible(row.offsetLabel);
         addAndMakeVisible(row.offset);
+        row.meter.setComponentID(
+            "sourceLevelMeter" + juce::String(index));
+        row.meter.setTooltip(
+            "Source post-gain stereo peak level in dBFS.");
+        addAndMakeVisible(row.meter);
         row.gainAttachment = std::make_unique<
             juce::AudioProcessorValueTreeState::SliderAttachment>(
             state, "sourceGain" + juce::String(index), row.gain);
@@ -332,12 +750,21 @@ DPWIMAudioProcessorEditor::DPWIMAudioProcessorEditor(
             processor_.setSourceEnabled(index, !snapshot.enabled);
             timerCallback();
         };
+        row.advanced.onClick = [this, index] {
+            showAdvanced(index);
+        };
+        row.selectedIcon.setInterceptsMouseClicks(false, false);
+        row.selectedIcon.setImagePlacement(
+            juce::RectanglePlacement::centred
+            | juce::RectanglePlacement::onlyReduceInSize);
     }
 
     refreshButton_.onClick = [this] { refreshProcesses(); };
     refreshProcesses();
     timerCallback();
+    updateChecker_.start(ProjectInfo::versionString);
     startTimerHz(5);
+    resized();
 }
 
 DPWIMAudioProcessorEditor::~DPWIMAudioProcessorEditor()
@@ -349,7 +776,16 @@ DPWIMAudioProcessorEditor::~DPWIMAudioProcessorEditor()
 juce::Rectangle<int>
 DPWIMAudioProcessorEditor::contentBounds() const
 {
-    return getLocalBounds().reduced(18);
+    return getLocalBounds()
+        .withTrimmedBottom(26)
+        .reduced(18);
+}
+
+juce::Rectangle<int>
+DPWIMAudioProcessorEditor::footerBounds() const
+{
+    auto bounds = getLocalBounds();
+    return bounds.removeFromBottom(26).reduced(18, 0);
 }
 
 void DPWIMAudioProcessorEditor::paint(juce::Graphics& graphics)
@@ -363,6 +799,11 @@ void DPWIMAudioProcessorEditor::paint(juce::Graphics& graphics)
         header.getBottom(),
         static_cast<float>(contentBounds().getX()),
         static_cast<float>(contentBounds().getRight()));
+    const auto footer = footerBounds();
+    graphics.drawHorizontalLine(
+        footer.getY(),
+        static_cast<float>(footer.getX()),
+        static_cast<float>(footer.getRight()));
 
     auto body = content;
     const int masterWidth = juce::jlimit(
@@ -374,6 +815,14 @@ void DPWIMAudioProcessorEditor::paint(juce::Graphics& graphics)
         master.getRight(),
         static_cast<float>(body.getY() + 10),
         static_cast<float>(body.getBottom()));
+
+    constexpr int outputStripWidth = 54;
+    const auto outputStrip =
+        body.removeFromRight(outputStripWidth);
+    graphics.drawVerticalLine(
+        outputStrip.getX(),
+        static_cast<float>(outputStrip.getY() + 10),
+        static_cast<float>(outputStrip.getBottom()));
 
     const int channelWidth =
         body.getWidth()
@@ -402,6 +851,13 @@ void DPWIMAudioProcessorEditor::paint(juce::Graphics& graphics)
     graphics.drawRoundedRectangle(
         sampleRateLabel_.getBounds().toFloat(), 4.0f, 1.0f);
 
+    graphics.setColour(juce::Colour(raised));
+    graphics.fillRoundedRectangle(
+        effectiveLatencyLabel_.getBounds().toFloat(), 4.0f);
+    graphics.setColour(juce::Colour(divider));
+    graphics.drawRoundedRectangle(
+        effectiveLatencyLabel_.getBounds().toFloat(), 4.0f, 1.0f);
+
     for (const auto& row : rows_) {
         const auto bounds = row.status.getBounds();
         const auto centre = juce::Point<float>(
@@ -414,39 +870,23 @@ void DPWIMAudioProcessorEditor::paint(juce::Graphics& graphics)
     }
 }
 
-void DPWIMAudioProcessorEditor::paintOverChildren(
-    juce::Graphics& graphics)
-{
-    for (const auto& row : rows_) {
-        if (row.selectedIcon.isNull())
-            continue;
-        const auto selector = row.selector.getBounds();
-        graphics.drawImageWithin(
-            row.selectedIcon,
-            selector.getX() + 10,
-            selector.getY()
-                + (selector.getHeight() - 22) / 2,
-            22, 22,
-            juce::RectanglePlacement::centred
-                | juce::RectanglePlacement::onlyReduceInSize,
-            false);
-    }
-}
-
 void DPWIMAudioProcessorEditor::resized()
 {
     auto content = contentBounds();
     auto header = content.removeFromTop(56);
-    markLabel_.setBounds(header.removeFromLeft(118));
-    versionLabel_.setBounds(
-        header.removeFromLeft(62).reduced(0, 13));
-    header.removeFromLeft(10);
-    productLabel_.setBounds(header.removeFromLeft(200));
-    header.removeFromLeft(10);
-    sampleRateLabel_.setBounds(
-        header.removeFromLeft(76).reduced(0, 11));
+    const bool compactHeader = getWidth() < 960;
+    markLabel_.setBounds(
+        header.removeFromLeft(compactHeader ? 140 : 150));
+    header.removeFromLeft(compactHeader ? 8 : 12);
+    productLabel_.setBounds(
+        header.removeFromLeft(compactHeader ? 260 : 300));
     refreshButton_.setBounds(
-        header.removeFromRight(132).reduced(0, 8));
+        header.removeFromRight(compactHeader ? 116 : 132)
+            .reduced(0, 8));
+    header.removeFromRight(compactHeader ? 6 : 8);
+    bypassButton_.setBounds(
+        header.removeFromRight(compactHeader ? 84 : 92)
+            .reduced(0, 8));
 
     auto body = content;
     const int masterWidth = juce::jlimit(
@@ -454,23 +894,33 @@ void DPWIMAudioProcessorEditor::resized()
         static_cast<int>(
             std::round(body.getWidth() * 0.195)));
     auto master = body.removeFromLeft(masterWidth).reduced(14, 10);
-    auto dryHeader = master.removeFromTop(34);
+    dryMeter_.setBounds(master.removeFromBottom(32));
+    master.removeFromBottom(4);
+    auto dryHeader = master.removeFromTop(32);
     dryPower_.setBounds(
         dryHeader.removeFromRight(52).reduced(0, 2));
     dryHeader.removeFromRight(4);
     dryTitle_.setBounds(dryHeader);
-    master.removeFromTop(8);
-    dryGainLabel_.setBounds(master.removeFromTop(22));
+    master.removeFromTop(6);
+    dryGainLabel_.setBounds(master.removeFromTop(20));
     dryGain_.setBounds(master.removeFromTop(
-        juce::jlimit(150, 200, master.getHeight() / 2)));
-    master.removeFromTop(18);
-    targetLabel_.setBounds(master.removeFromTop(24));
+        juce::jlimit(120, 200, master.getHeight() / 2)));
+    master.removeFromTop(8);
+    targetLabel_.setBounds(master.removeFromTop(22));
     targetLatency_.setBounds(master.removeFromTop(
         std::min(142, master.getHeight())));
+
+    constexpr int outputStripWidth = 54;
+    auto outputStrip =
+        body.removeFromRight(outputStripWidth).reduced(6, 10);
+    mainOutputLabel_.setBounds(outputStrip.removeFromTop(34));
+    outputStrip.removeFromTop(2);
+    mainOutputMeter_.setBounds(outputStrip);
 
     const int channelWidth =
         body.getWidth()
         / DPWIMAudioProcessor::kSourceSlots;
+    const bool compactSources = getWidth() < 960;
     for (int index = 0;
          index < DPWIMAudioProcessor::kSourceSlots; ++index) {
         auto strip = index
@@ -478,22 +928,61 @@ void DPWIMAudioProcessorEditor::resized()
             ? body
             : body.removeFromLeft(channelWidth);
         auto& row = rows_[static_cast<std::size_t>(index)];
-        auto inner = strip.reduced(13, 10);
-        row.title.setBounds(inner.removeFromTop(34));
-        row.applicationLabel.setBounds(inner.removeFromTop(22));
+        auto inner = strip.reduced(compactSources ? 10 : 13, 10);
+        row.meter.setBounds(inner.removeFromBottom(32));
+        inner.removeFromBottom(4);
+        auto titleRow = inner.removeFromTop(32);
+        row.title.setFont(juce::Font(
+            compactSources ? 17.0f : 19.0f, juce::Font::bold));
+        row.advanced.setBounds(
+            titleRow.removeFromRight(compactSources ? 42 : 46)
+                .reduced(0, 3));
+        titleRow.removeFromRight(compactSources ? 2 : 4);
+        row.title.setBounds(titleRow);
+        row.applicationLabel.setBounds(inner.removeFromTop(20));
         row.selector.setBounds(
-            inner.removeFromTop(42).reduced(0, 3));
-        auto statusRow = inner.removeFromTop(32).reduced(8, 2);
-        row.power.setBounds(statusRow.removeFromLeft(52));
+            inner.removeFromTop(40).reduced(0, 3));
+        const auto selector = row.selector.getBounds();
+        row.selectedIcon.setBounds(
+            selector.getX() + 10,
+            selector.getY() + (selector.getHeight() - 22) / 2,
+            22, 22);
+        auto statusRow = inner.removeFromTop(28)
+            .reduced(compactSources ? 4 : 8, 1);
+        row.power.setBounds(
+            statusRow.removeFromLeft(compactSources ? 48 : 52));
         statusRow.removeFromLeft(4);
+        row.status.setBorderSize(
+            {0, compactSources ? 10 : 14, 0, 0});
         row.status.setBounds(statusRow);
-        row.gainLabel.setBounds(inner.removeFromTop(24));
-        row.gain.setBounds(inner.removeFromTop(
-            juce::jlimit(142, 178, inner.getHeight() / 2)));
-        inner.removeFromTop(12);
-        row.offsetLabel.setBounds(inner.removeFromTop(24));
-        row.offset.setBounds(inner);
+        row.gainLabel.setBounds(inner.removeFromTop(22));
+        const int gainHeight = juce::jlimit(
+            84, 178, inner.getHeight() - 114);
+        row.gain.setBounds(inner.removeFromTop(gainHeight));
+        inner.removeFromTop(8);
+        row.offsetLabel.setBounds(inner.removeFromTop(22));
+        row.offset.setBounds(
+            inner.removeFromTop(std::min(132, inner.getHeight())));
     }
+
+    const auto fullFooter = footerBounds().reduced(0, 3);
+    auto footer = fullFooter;
+    versionLabel_.setBounds(footer.removeFromLeft(58));
+    if (availableVersion_.isNotEmpty()) {
+        createdByLink_.setJustificationType(
+            juce::Justification::centredRight);
+        createdByLink_.setBounds(footer.removeFromRight(222));
+    } else {
+        createdByLink_.setJustificationType(
+            juce::Justification::centredRight);
+        createdByLink_.setBounds(footer.removeFromRight(118));
+    }
+    auto audioContext = fullFooter.withSizeKeepingCentre(
+        compactHeader ? 278 : 310, fullFooter.getHeight());
+    sampleRateLabel_.setBounds(
+        audioContext.removeFromLeft(compactHeader ? 62 : 68));
+    audioContext.removeFromLeft(6);
+    effectiveLatencyLabel_.setBounds(audioContext);
 }
 
 void DPWIMAudioProcessorEditor::refreshProcesses()
@@ -505,7 +994,7 @@ void DPWIMAudioProcessorEditor::refreshProcesses()
             rows_[static_cast<std::size_t>(rowIndex)].selector;
         const auto snapshot = processor_.sourceSnapshot(rowIndex);
         auto& row = rows_[static_cast<std::size_t>(rowIndex)];
-        row.selectedIcon = {};
+        row.selectedIcon.setImage({});
         selector.clear(juce::dontSendNotification);
         selector.addItem("Select source", 1);
         selector.addItem("Desktop (exclude host)", 2);
@@ -534,11 +1023,11 @@ void DPWIMAudioProcessorEditor::refreshProcesses()
                 selectedId = itemId;
                 const auto& path = processes_[index].path;
                 if (!path.empty()) {
-                    row.selectedIcon =
+                    row.selectedIcon.setImage(
                         juce::detail::WindowingHelpers::
                             createIconForFile(
                                 juce::File(
-                                    juce::String(path.c_str())));
+                                    juce::String(path.c_str()))));
                 }
             }
         }
@@ -575,8 +1064,89 @@ void DPWIMAudioProcessorEditor::applySelection(int row)
     repaint();
 }
 
+void DPWIMAudioProcessorEditor::showAdvanced(int row)
+{
+    if (!juce::isPositiveAndBelow(
+            row, static_cast<int>(rows_.size())))
+        return;
+    auto content = std::make_unique<SourceAdvancedPanel>(
+        processor_, row);
+    const auto& button =
+        rows_[static_cast<std::size_t>(row)].advanced;
+    juce::CallOutBox::launchAsynchronously(
+        std::move(content),
+        getLocalArea(&button, button.getLocalBounds()),
+        this);
+}
+
+void DPWIMAudioProcessorEditor::showAdvancedForTesting(int row)
+{
+    if (!juce::isPositiveAndBelow(
+            row, static_cast<int>(rows_.size())))
+        return;
+    testingAdvancedPanel_ =
+        std::make_unique<SourceAdvancedPanel>(processor_, row);
+    addAndMakeVisible(*testingAdvancedPanel_);
+    const auto anchor =
+        rows_[static_cast<std::size_t>(row)].advanced.getBounds();
+    const auto x = juce::jlimit(
+        8, getWidth() - testingAdvancedPanel_->getWidth() - 8,
+        anchor.getCentreX() - 180);
+    const auto y = juce::jlimit(
+        8, getHeight() - testingAdvancedPanel_->getHeight() - 8,
+        anchor.getBottom() + 10);
+    testingAdvancedPanel_->setTopLeftPosition(x, y);
+    testingAdvancedPanel_->toFront(false);
+}
+
+void DPWIMAudioProcessorEditor::showAvailableUpdate(
+    const juce::String& latestVersion,
+    const juce::String& releaseUrl)
+{
+    if (latestVersion.isEmpty()
+        || latestVersion == availableVersion_)
+        return;
+    availableVersion_ = latestVersion;
+    createdByLink_.setButtonText(
+        "Update available | Created by LiveTrack");
+    createdByLink_.setURL(juce::URL(
+        releaseUrl.isNotEmpty()
+            ? releaseUrl
+            : "https://github.com/LiveTrack-X/DPWIM/releases/latest"));
+    createdByLink_.setTooltip(
+        latestVersion
+        + " is available. Open this GitHub release.");
+    createdByLink_.setColour(
+        juce::HyperlinkButton::textColourId,
+        juce::Colour(updateAccent));
+    resized();
+    repaint();
+}
+
+void DPWIMAudioProcessorEditor::showAvailableUpdateForTesting(
+    const juce::String& latestVersion)
+{
+    showAvailableUpdate(
+        latestVersion,
+        "https://github.com/LiveTrack-X/DPWIM/releases/tag/"
+            + latestVersion);
+}
+
+juce::String DPWIMAudioProcessorEditor::formatLatencySummary(
+    double outputMs, double syncAdditionMs, int samples)
+{
+    return "OUT " + juce::String(outputMs, 1)
+        + " ms | SYNC +" + juce::String(syncAdditionMs, 1)
+        + " ms | " + juce::String(samples) + " smp";
+}
+
 void DPWIMAudioProcessorEditor::timerCallback()
 {
+    const auto update = updateChecker_.snapshot();
+    if (update.state == dpwim::UpdateChecker::State::Available)
+        showAvailableUpdate(
+            update.latestVersion, update.releaseUrl);
+
     const auto rate = processor_.currentSampleRate();
     sampleRateLabel_.setText(
         juce::String(static_cast<int>(
@@ -584,7 +1154,27 @@ void DPWIMAudioProcessorEditor::timerCallback()
             + " kHz",
         juce::dontSendNotification);
 
+    const auto latency = processor_.latencySnapshot();
+    effectiveLatencyLabel_.setText(
+        formatLatencySummary(
+            latency.effectiveMs, latency.syncAdditionMs,
+            latency.samples),
+        juce::dontSendNotification);
+    effectiveLatencyLabel_.setColour(
+        juce::Label::textColourId,
+        juce::Colour(latency.syncAdditionMs > 0.05
+                         ? accent
+                         : secondary));
+
+    const bool bypassed = bypassButton_.getToggleState();
+    bypassButton_.setButtonText(bypassed ? "BYPASSED" : "BYPASS");
+
     const bool dryEnabled = dryPower_.getToggleState();
+    const auto levels = processor_.levelSnapshot();
+    dryMeter_.setLevels(levels.dry[0], levels.dry[1]);
+    mainOutputMeter_.setLevels(
+        levels.mainOutput[0], levels.mainOutput[1]);
+    dryMeter_.setEnabled(bypassed || dryEnabled);
     dryPower_.setButtonText(dryEnabled ? "ON" : "OFF");
     dryPower_.setColour(
         juce::TextButton::textColourOffId,
@@ -601,7 +1191,12 @@ void DPWIMAudioProcessorEditor::timerCallback()
         const bool hasSource =
             snapshot.mode != DPWIMAudioProcessor::SourceMode::Off;
         const bool enabled = hasSource && snapshot.enabled;
+        row.meter.setLevels(
+            levels.sources[static_cast<std::size_t>(index)][0],
+            levels.sources[static_cast<std::size_t>(index)][1]);
+        row.meter.setEnabled(enabled && !bypassed);
         row.active = enabled && snapshot.running;
+        row.advanced.setEnabled(hasSource);
         row.power.setEnabled(hasSource);
         row.power.setToggleState(
             enabled, juce::dontSendNotification);

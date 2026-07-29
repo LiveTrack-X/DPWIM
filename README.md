@@ -43,19 +43,25 @@ Windows x64 VST2/VST3 플러그인입니다.
 가상 오디오 장치 없이 사용할 수 있습니다. 현재 GPL-3.0 기반의 무료 공개
 프리뷰입니다.
 
-**[Download DPWIM v0.2.3 / DPWIM v0.2.3 다운로드](https://github.com/LiveTrack-X/DPWIM/releases/tag/v0.2.3)**
+**[Download DPWIM v0.3.0 / DPWIM v0.3.0 다운로드](https://github.com/LiveTrack-X/DPWIM/releases/tag/v0.3.0)**
 
-Status: `v0.2.3` public preview. It is locally software-verified, but unsigned,
+Status: `v0.3.0` public preview. It is locally software-verified, but unsigned,
 not DAW-matrix-tested, and not claimed production-ready.
 
-상태: `v0.2.3` 공개 프리뷰입니다. 로컬 소프트웨어 검증은 통과했지만
+상태: `v0.3.0` 공개 프리뷰입니다. 로컬 소프트웨어 검증은 통과했지만
 코드 서명과 광범위한 DAW 호환성 검증은 아직 완료되지 않았습니다.
+
+The source checkout may contain unreleased work described under `Unreleased`
+in the changelog. The download link above remains the latest published build.
+
+현재 소스 체크아웃에는 변경 이력의 `Unreleased` 항목에 적힌 미릴리즈 작업이
+포함될 수 있습니다. 위 다운로드 링크는 현재 공개된 최신 빌드를 가리킵니다.
 
 ## Signal flow
 
 ```text
 Host input -> common dry delay ----------------------+
-App/Desktop -> process loopback -> FIFO/sync/offset -+-> mixed output
+App/Desktop -> process loopback -> FIFO/sync -> pitch +-> mixed output
 ```
 
 The plugin has no runtime dependency on DirectPipe. DirectPipe can load it as a
@@ -65,21 +71,75 @@ normal 64-bit VST2/VST3 effect.
 
 ## Current controls
 
-- Target Latency: one common 10-250 ms timeline for dry and captured sources.
+- Base Latency: the common 10-250 ms safety delay reserved for stable capture
+  and input alignment.
 - Dry Input ON/OFF: mute the upstream/microphone path without stopping app capture.
 - Dry Gain: independent level for the upstream/microphone path.
 - Four source slots: one selected application or desktop capture.
 - Per-source ON/OFF: suspend capture and mixing without losing the selection.
 - Per-source Gain: independent -60 to +12 dB adjustment for every app.
 - Per-source Offset: signed -200 to +200 ms manual sync trim.
+- Automatic common-timeline rebase: a negative source offset delays the other
+  active paths by only the amount needed to keep that source causal.
+- OUT latency indicator: shows effective output latency, added sync latency,
+  and the sample count reported to the host.
+- Per-source Advanced: Transpose (-12 to +12 semitones) and Fine Pitch
+  (-100 to +100 cents).
+- Global BYPASS: immediately passes the raw host input at unity, excludes all
+  captured sources and DPWIM processing, and reports zero plugin latency.
+- Horizontal L/R meters: show each Dry/source contribution after its gain and
+  source processing, with a left-to-right dBFS scale, peak hold, and clip
+  indication. In BYPASS, only the immediate raw Dry Input is metered.
+- Vertical MAIN OUT meter: shows the final summed stereo output at the far
+  right. During BYPASS it follows the raw host input that is passed through.
+- Footer status: `Created by LiveTrack` links to the DPWIM repository. When a
+  newer GitHub release exists, the full orange
+  `Update available | Created by LiveTrack` link opens that release.
 - Refresh: updates the selectable Windows process list.
 
-New instances start at the minimum 10 ms Target Latency with Dry Gain and all
+New instances start at the minimum 10 ms Base Latency with Dry Gain and all
 source gains at 0 dB. Saved host projects and presets restore their own values.
+
+The meters are informational only: they are not DAW parameters and are not
+stored in projects or presets. Mono host input is mirrored across the L/R meter
+display.
+
+레벨미터는 정보 표시 전용이며 DAW 파라미터나 프로젝트·프리셋 저장값이
+아닙니다. 모노 호스트 입력은 L/R 미터에 동일하게 표시됩니다. Dry와 각
+소스의 실제 믹스 기여도를 게인·소스 처리 이후 지점에서 확인할 수 있으며,
+바이패스 중에는 즉시 통과하는 원본 Dry Input만 표시합니다.
+
+오른쪽 끝의 세로 MAIN OUT 미터는 모든 경로를 합산한 최종 출력을
+표시합니다. 따라서 개별 소스에는 없던 합산 클리핑도 확인할 수 있으며,
+바이패스 중에는 실제로 즉시 통과하는 원본 입력을 표시합니다.
+
+`OUT Latency = Base Latency + automatic SYNC addition`. Negative source
+offsets and active source processing can add SYNC latency; positive offsets
+delay only their source.
 
 Each captured source has its own bounded FIFO and drift-correction clock. App
 mode includes the selected process tree; desktop mode captures system output
 while excluding the current host process tree to reduce feedback.
+
+Pitch processing adds algorithmic latency; the common timeline and the
+OUT/host latency report include it automatically.
+
+피치 처리는 알고리즘 지연을 추가하며, 공통 타임라인과 OUT/호스트 지연
+보고에 자동 반영됩니다.
+
+Speed, Tempo, and Loop processing are not part of the current scope.
+
+Speed, Tempo, Loop 처리는 현재 범위에 포함되지 않습니다.
+
+The editor performs one short HTTPS request to GitHub's public latest-release
+endpoint when opened. It sends no project, audio, or user data. Offline or
+failed checks stay silent. DPWIM does not download or replace plugin files
+automatically.
+
+에디터를 열면 GitHub의 공개 최신 릴리즈 주소를 HTTPS로 한 번 확인합니다.
+프로젝트·오디오·사용자 데이터는 전송하지 않으며, 오프라인이거나 확인에
+실패하면 별도 경고를 표시하지 않습니다. 플러그인 파일을 자동 다운로드하거나
+교체하지는 않습니다.
 
 ## Requirements
 

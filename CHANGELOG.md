@@ -2,6 +2,46 @@
 
 All notable changes to DPWIM are documented here.
 
+## [Unreleased]
+
+## [0.3.0] - 2026-07-29
+
+### Added
+
+- Automatic common-timeline rebase for negative source offsets, with effective
+  output latency reported to the host.
+- Header OUT indicator for effective milliseconds, added sync latency, and
+  reported samples.
+- User-facing `Base Latency` naming and explanatory tooltips while preserving
+  the existing `targetLatency` parameter ID and saved-state compatibility.
+- Per-source Advanced panel with Transpose and Fine Pitch controls.
+- Subtle `Created by LiveTrack` repository footer that becomes one orange
+  latest-release link when a newer GitHub release is available.
+- Host-automatable global BYPASS button that immediately passes the raw host
+  input at unity and reports zero plugin latency.
+- Compact horizontal L/R peak meters for Dry Input and every source, with an
+  adaptive dBFS scale, peak hold, and clip indication.
+- Dedicated vertical MAIN OUT L/R meter at the far right, measuring the final
+  post-mix or immediate bypass output.
+- Deterministic coverage for sync rebasing, pitch shifting, and latency
+  reporting, plus Dry/bypass meter snapshots.
+
+### Changed
+
+- Offset and processing-latency changes now re-prime captured audio with a
+  short fade and crossfade the Dry Input delay tap.
+- Selected application icons are regular child components so modal Advanced
+  panels paint above them correctly.
+- Sync Offset dials use a bounded secondary-control size instead of expanding
+  into all remaining vertical space in large plugin windows.
+- Update checks are informational only; failed or offline checks remain silent
+  and plugin files are never replaced automatically.
+
+### Known limitations
+
+- Pitch quality still requires validation in representative DAWs and real
+  monitoring routes.
+
 ## [0.2.3] - 2026-07-26
 
 ### Added
