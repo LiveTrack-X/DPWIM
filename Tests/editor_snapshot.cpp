@@ -69,7 +69,8 @@ bool validateLatencyUi(juce::AudioProcessorEditor& editor,
     constexpr auto outputTooltip =
         "Output latency equals the Base Latency plus any automatic sync "
         "addition. The sample count is the latency reported to the host at "
-        "the current sample rate.";
+        "the current sample rate. This is DPWIM latency, not end-to-end "
+        "device latency.";
     constexpr auto offsetTooltip =
         "Moves this source relative to the shared timeline. Negative values "
         "make it earlier by delaying the other paths. Positive values delay "
@@ -144,7 +145,8 @@ bool validateBypassUi(
 {
     constexpr auto bypassTooltip =
         "Immediately passes the raw host input at unity while muting captured "
-        "app sources. Plugin output latency becomes 0 samples.";
+        "app sources. DPWIM output latency becomes 0 samples; host and device "
+        "buffer latency is not included.";
     auto* bypass = dynamic_cast<juce::TextButton*>(
         editor.findChildWithID("globalBypass"));
     auto* refresh = editor.findChildWithID("refreshApps");

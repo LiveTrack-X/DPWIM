@@ -15,7 +15,9 @@
 #include <mutex>
 
 class DPWIMAudioProcessor final : public juce::AudioProcessor,
-                                  private juce::Timer {
+                                  private juce::Timer,
+                                  private juce::AudioProcessorValueTreeState::Listener,
+                                  private juce::AsyncUpdater {
 public:
     static constexpr int kSourceSlots = 4;
 
@@ -59,7 +61,10 @@ public:
         juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
     juce::AudioProcessorParameter* getBypassParameter() const override
     {
-        return bypassParameter_;
+        // Keep DPWIM's persistent in-editor bypass distinct from the
+        // wrapper-provided host bypass. This lets external bypass use
+        // processBlockBypassed() without changing the host latency contract.
+        return nullptr;
     }
 
     juce::AudioProcessorEditor* createEditor() override;
@@ -99,6 +104,13 @@ public:
     SourceSnapshot sourceSnapshot(int slot) const;
 
 private:
+    enum class AudioPathMode {
+        Uninitialised,
+        Normal,
+        InternalBypass,
+        HostBypass,
+    };
+
     struct SourceSlot {
         dpwim::AudioRingBuffer ring;
         dpwim::PhaseVocoderPitchShifter pitchShifter;
@@ -128,10 +140,16 @@ private:
     void restoreSources(const juce::ValueTree&);
     juce::ValueTree createSourceState() const;
     void timerCallback() override;
+    void parameterChanged(
+        const juce::String& parameterId, float newValue) override;
+    void handleAsyncUpdate() override;
+    void requestLatencyReportUpdate();
     void updateLatencyReport();
     dpwim::SyncTimelinePlan currentTimeline() const noexcept;
     void processAudioBlock(
         juce::AudioBuffer<float>&, bool forceBypass);
+    void prepareAudioPath(
+        AudioPathMode mode, int frames, double sampleRate) noexcept;
     static void updateMeterPeak(
         std::atomic<float>& meter, float peak, float release) noexcept;
 
@@ -140,7 +158,6 @@ private:
     std::atomic<float>* dryEnabledParam_ = nullptr;
     std::atomic<float>* dryGainParam_ = nullptr;
     std::atomic<float>* bypassParam_ = nullptr;
-    juce::RangedAudioParameter* bypassParameter_ = nullptr;
     std::array<std::atomic<float>*, kSourceSlots> sourceGainParams_{};
     std::array<std::atomic<float>*, kSourceSlots> sourceOffsetParams_{};
     std::array<std::atomic<float>*, kSourceSlots> sourceTransposeParams_{};
@@ -150,9 +167,10 @@ private:
     std::array<std::atomic<float>, 2> dryMeterPeaks_{};
     std::array<std::atomic<float>, 2> mainOutputMeterPeaks_{};
     std::atomic<bool> prepared_{false};
-    std::atomic<bool> hostBypassActive_{false};
     std::atomic<double> sampleRate_{48000.0};
     std::atomic<int> lastReportedLatency_{-1};
+    AudioPathMode audioPathMode_ = AudioPathMode::Uninitialised;
+    juce::int64 lastAudioBlockTick_ = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DPWIMAudioProcessor)
 };

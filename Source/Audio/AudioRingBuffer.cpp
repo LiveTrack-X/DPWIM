@@ -11,12 +11,27 @@ void AudioRingBuffer::configure(std::size_t capacityFrames,
     capacityFrames_ = std::max<std::size_t>(capacityFrames, 8);
     channels_ = std::max<std::uint32_t>(channels, 1);
     data_.assign(capacityFrames_ * channels_, 0.0f);
+    generation_.store(0, std::memory_order_relaxed);
+    consumerGeneration_ = 0;
     reset();
 }
 
 void AudioRingBuffer::reset() noexcept
 {
     writeFrame_.store(0, std::memory_order_release);
+    resetConsumerState();
+    consumerGeneration_ =
+        generation_.load(std::memory_order_acquire);
+}
+
+void AudioRingBuffer::discard() noexcept
+{
+    writeFrame_.store(0, std::memory_order_release);
+    generation_.fetch_add(1, std::memory_order_acq_rel);
+}
+
+void AudioRingBuffer::resetConsumerState() noexcept
+{
     readFrame_ = 0.0;
     primed_ = false;
     ratio_ = 1.0;
@@ -65,6 +80,13 @@ AudioRingBuffer::RenderResult AudioRingBuffer::renderAdd(
     if (capacityFrames_ == 0 || channels_ == 0 || outputs == nullptr
         || outputChannels <= 0 || frames == 0)
         return result;
+
+    const auto generation =
+        generation_.load(std::memory_order_acquire);
+    if (generation != consumerGeneration_) {
+        resetConsumerState();
+        consumerGeneration_ = generation;
+    }
 
     const auto write = writeFrame_.load(std::memory_order_acquire);
     targetFillFrames = std::clamp(targetFillFrames, 2.0,

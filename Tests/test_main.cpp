@@ -3,6 +3,7 @@
 #include "Audio/SyncTimeline.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <iostream>
 #include <vector>
@@ -62,6 +63,27 @@ void testDryDelayTransition()
           "dry delay change crossfades without a hard timeline jump");
     check(std::abs(changed.back() - 181.0625f) < 0.1f,
           "dry delay transition reaches the new delay tap");
+}
+
+void testDryDelayResetInvalidatesHistory()
+{
+    dpwim::DryDelay delay;
+    delay.prepare(1, 16);
+    std::vector<float> priming(4, 0.0f);
+    priming[2] = 1.0f;
+    float* primingChannels[] = {priming.data()};
+    delay.process(
+        primingChannels, 1, static_cast<int>(priming.size()), 3);
+
+    delay.reset();
+    std::vector<float> afterReset(8, 0.0f);
+    float* resetChannels[] = {afterReset.data()};
+    delay.process(
+        resetChannels, 1, static_cast<int>(afterReset.size()), 3);
+    check(std::all_of(
+              afterReset.begin(), afterReset.end(),
+              [](float sample) { return std::abs(sample) < 1.0e-6f; }),
+          "dry delay reset invalidates buffered history");
 }
 
 float renderFirstAtTarget(double target)
@@ -238,17 +260,47 @@ void testWrapAndOverflowRecovery()
           "overflow recovery reads valid recent audio");
 }
 
+void testDiscardInvalidatesHistory()
+{
+    dpwim::AudioRingBuffer ring;
+    ring.configure(32, 1);
+    const std::array<float, 8> oldAudio{
+        1.0f, 1.0f, 1.0f, 1.0f,
+        1.0f, 1.0f, 1.0f, 1.0f};
+    ring.write(
+        oldAudio.data(),
+        static_cast<std::uint32_t>(oldAudio.size()), 1);
+
+    std::array<float, 4> output{};
+    float* outputChannels[] = {output.data()};
+    ring.renderAdd(outputChannels, 1, 4, 1.0f, 4.0);
+    ring.discard();
+    output.fill(0.0f);
+    const auto afterDiscard =
+        ring.renderAdd(outputChannels, 1, 4, 1.0f, 4.0);
+    check(
+        afterDiscard.renderedFrames == 0
+            && std::all_of(
+                output.begin(), output.end(),
+                [](float sample) {
+                    return std::abs(sample) < 1.0e-6f;
+                }),
+        "FIFO discard invalidates old audio on the consumer thread");
+}
+
 } // namespace
 
 int main()
 {
     testDryDelay();
     testDryDelayTransition();
+    testDryDelayResetInvalidatesHistory();
     testOffsetDirection();
     testSyncTimelineRebase();
     testPllBounds();
     testReprimeFade();
     testWrapAndOverflowRecovery();
+    testDiscardInvalidatesHistory();
     if (failures == 0) {
         std::cout << "DPWIM core tests passed\n";
         return 0;

@@ -43,6 +43,25 @@ void setPlainValue(DPWIMAudioProcessor& processor,
             parameter->convertTo0to1(plainValue));
 }
 
+bool waitForLatency(DPWIMAudioProcessor& processor,
+                    int expectedSamples, int timeoutMs)
+{
+    const auto deadline =
+        juce::Time::getMillisecondCounterHiRes() + timeoutMs;
+    do {
+        if (processor.getLatencySamples() == expectedSamples)
+            return true;
+        juce::Thread::sleep(1);
+    } while (juce::Time::getMillisecondCounterHiRes() < deadline);
+    return processor.getLatencySamples() == expectedSamples;
+}
+
+void dispatchMessagesFor(int durationMs)
+{
+    juce::Thread::sleep(durationMs);
+    juce::Timer::callPendingTimersSynchronously();
+}
+
 double toneMagnitude(const std::vector<float>& audio,
                      std::size_t start, std::size_t frames,
                      double frequency, double sampleRate)
@@ -113,6 +132,16 @@ int main()
             == "OUT 35.0 ms | SYNC +25.0 ms | 1680 smp",
         "latency summary uses the documented display format");
     check(
+        DPWIMAudioProcessorEditor::kMeterRefreshHz == 60
+            && DPWIMAudioProcessorEditor::kControlRefreshHz == 5,
+        "meters refresh at 60 Hz while control state remains at 5 Hz");
+    check(
+        DPWIMLevelMeter::kPeakHoldTicks
+                == DPWIMLevelMeter::kRefreshHz
+            && DPWIMLevelMeter::kClipHoldTicks
+                == DPWIMLevelMeter::kRefreshHz * 2,
+        "peak and clip hold durations remain one and two seconds");
+    check(
         dpwim::UpdateChecker::isNewerVersion("0.2.3", "v0.2.4"),
         "update checker accepts a newer patch release");
     check(
@@ -128,9 +157,8 @@ int main()
     checkValue(source, "dryEnabled", 1.0f);
     checkValue(source, "bypass", 0.0f);
     check(
-        source.getBypassParameter()
-            == source.parameters().getParameter("bypass"),
-        "processor exposes the persistent bypass parameter to the host");
+        source.getBypassParameter() == nullptr,
+        "host bypass remains separate from the persistent DPWIM bypass");
     const auto initialLevels = source.levelSnapshot();
     check(initialLevels.dry[0] == 0.0f
               && initialLevels.dry[1] == 0.0f,
@@ -201,18 +229,52 @@ int main()
           "main output snapshot follows the final normal mix");
     timingProcessor.releaseResources();
 
+    DPWIMAudioProcessor lowRateProcessor;
+    lowRateProcessor.setSource(
+        0, DPWIMAudioProcessor::SourceMode::Application,
+        0, {});
+    setPlainValue(lowRateProcessor, "targetLatency", 250.0f);
+    setPlainValue(lowRateProcessor, "sourceOffset0", -200.0f);
+    setPlainValue(lowRateProcessor, "sourceTranspose0", 1.0f);
+    lowRateProcessor.prepareToPlay(16000.0, 512);
+    constexpr int lowRateMaximumLatency = 8736;
+    check(
+        lowRateProcessor.getLatencySamples()
+            == lowRateMaximumLatency,
+        "low-rate maximum timeline reports the full latency");
+    int lowRateImpulseFrame = -1;
+    for (int block = 0;
+         block <= lowRateMaximumLatency / audio.getNumSamples() + 1;
+         ++block) {
+        audio.clear();
+        if (block == 0) {
+            audio.setSample(0, 0, 0.5f);
+            audio.setSample(1, 0, 0.5f);
+        }
+        lowRateProcessor.processBlock(audio, midi);
+        for (int frame = 0; frame < audio.getNumSamples(); ++frame)
+            if (lowRateImpulseFrame < 0
+                && std::abs(audio.getSample(0, frame)) > 0.4f)
+                lowRateImpulseFrame =
+                    block * audio.getNumSamples() + frame;
+    }
+    check(
+        lowRateImpulseFrame == lowRateMaximumLatency,
+        "low-rate maximum dry delay matches the reported latency");
+    lowRateProcessor.releaseResources();
+
     DPWIMAudioProcessor bypassProcessor;
     setPlainValue(bypassProcessor, "dryEnabled", 0.0f);
     setPlainValue(bypassProcessor, "dryGain", -60.0f);
     setPlainValue(bypassProcessor, "bypass", 1.0f);
     bypassProcessor.prepareToPlay(48000.0, 512);
     check(bypassProcessor.getLatencySamples() == 0,
-          "bypass reports zero output latency");
+          "internal DPWIM bypass reports zero output latency");
     const auto bypassLatency = bypassProcessor.latencySnapshot();
     check(bypassLatency.effectiveMs == 0.0
               && bypassLatency.syncAdditionMs == 0.0
               && bypassLatency.samples == 0,
-          "bypass exposes zero OUT and SYNC latency");
+          "internal bypass exposes zero OUT and SYNC latency");
     int bypassImpulseFrame = -1;
     float bypassImpulseValue = 0.0f;
     for (int block = 0; block < 3; ++block) {
@@ -244,7 +306,87 @@ int main()
     check(bypassLevels.sources[0][0] == 0.0f
               && bypassLevels.sources[0][1] == 0.0f,
           "source meters remain silent during global bypass");
+
+    setPlainValue(bypassProcessor, "bypass", 0.0f);
+    check(waitForLatency(bypassProcessor, 480, 50),
+          "leaving internal bypass restores latency without timer polling");
+    setPlainValue(bypassProcessor, "targetLatency", 20.0f);
+    check(waitForLatency(bypassProcessor, 960, 50),
+          "Base Latency changes update host latency without timer polling");
+    setPlainValue(bypassProcessor, "targetLatency", 10.0f);
+    check(waitForLatency(bypassProcessor, 480, 50),
+          "Base Latency restores without timer polling");
+
+    int externalBypassImpulseFrame = -1;
+    for (int block = 0; block < 2; ++block) {
+        audio.clear();
+        if (block == 0) {
+            audio.setSample(0, 0, 0.5f);
+            audio.setSample(1, 0, 0.5f);
+        }
+        bypassProcessor.processBlockBypassed(audio, midi);
+        for (int frame = 0; frame < audio.getNumSamples(); ++frame)
+            if (externalBypassImpulseFrame < 0
+                && std::abs(audio.getSample(0, frame)) > 0.4f)
+                externalBypassImpulseFrame = block * 512 + frame;
+    }
+    dispatchMessagesFor(120);
+    check(bypassProcessor.getLatencySamples() == 480,
+          "external host bypass keeps the latency report stable");
+    check(externalBypassImpulseFrame == 480,
+          "host-driven bypass audio matches the reported latency");
+
     bypassProcessor.releaseResources();
+    bypassProcessor.prepareToPlay(48000.0, 512);
+    for (int block = 0; block < 2; ++block) {
+        for (int channel = 0; channel < audio.getNumChannels(); ++channel)
+            for (int frame = 0; frame < audio.getNumSamples(); ++frame)
+                audio.setSample(channel, frame, 0.25f);
+        bypassProcessor.processBlock(audio, midi);
+    }
+    for (int channel = 0; channel < audio.getNumChannels(); ++channel)
+        for (int frame = 0; frame < audio.getNumSamples(); ++frame)
+            audio.setSample(channel, frame, 0.25f);
+    bypassProcessor.processBlockBypassed(audio, midi);
+    check(
+        audio.getMagnitude(0, 0, audio.getNumSamples()) > 0.24f
+            && std::abs(audio.getSample(0, 0) - 0.25f) < 0.001f,
+        "host bypass transition keeps the delayed dry stream continuous");
+
+    audio.clear();
+    bypassProcessor.processBlock(audio, midi);
+    dispatchMessagesFor(120);
+    check(bypassProcessor.getLatencySamples() == 480,
+          "external host bypass release needs no PDC recovery");
+    bypassProcessor.releaseResources();
+
+    DPWIMAudioProcessor bypassTransitionProcessor;
+    bypassTransitionProcessor.prepareToPlay(48000.0, 512);
+    audio.clear();
+    audio.setSample(0, 100, 0.5f);
+    audio.setSample(1, 100, 0.5f);
+    bypassTransitionProcessor.processBlock(audio, midi);
+    setPlainValue(bypassTransitionProcessor, "bypass", 1.0f);
+    audio.clear();
+    bypassTransitionProcessor.processBlock(audio, midi);
+    setPlainValue(bypassTransitionProcessor, "bypass", 0.0f);
+    audio.clear();
+    bypassTransitionProcessor.processBlock(audio, midi);
+    check(audio.getMagnitude(0, 0, audio.getNumSamples()) < 1.0e-6f,
+          "internal bypass release does not replay pre-bypass dry audio");
+
+    bypassTransitionProcessor.releaseResources();
+    bypassTransitionProcessor.prepareToPlay(48000.0, 512);
+    audio.clear();
+    audio.setSample(0, 100, 0.5f);
+    audio.setSample(1, 100, 0.5f);
+    bypassTransitionProcessor.processBlock(audio, midi);
+    juce::Thread::sleep(60);
+    audio.clear();
+    bypassTransitionProcessor.processBlock(audio, midi);
+    check(audio.getMagnitude(0, 0, audio.getNumSamples()) < 1.0e-6f,
+          "callback discontinuity does not replay stale dry audio");
+    bypassTransitionProcessor.releaseResources();
 
     setPlainValue(source, "targetLatency", 50.0f);
     setPlainValue(source, "dryEnabled", 0.0f);

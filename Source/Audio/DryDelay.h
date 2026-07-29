@@ -16,6 +16,7 @@ private:
     std::vector<std::vector<float>> buffers_;
     std::size_t writePosition_ = 0;
     std::size_t capacity_ = 0;
+    std::size_t validFrames_ = 0;
     int currentDelaySamples_ = -1;
     int previousDelaySamples_ = 0;
     int targetDelaySamples_ = 0;

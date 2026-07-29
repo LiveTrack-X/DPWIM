@@ -8,6 +8,9 @@
 
 namespace {
 
+constexpr float kMaximumBaseLatencyMs = 250.0f;
+constexpr float kMaximumNegativeOffsetMs = 200.0f;
+
 float dbToGain(float db)
 {
     return db <= -59.9f ? 0.0f : juce::Decibels::decibelsToGain(db);
@@ -27,7 +30,6 @@ DPWIMAudioProcessor::DPWIMAudioProcessor()
     dryEnabledParam_ = apvts_.getRawParameterValue("dryEnabled");
     dryGainParam_ = apvts_.getRawParameterValue("dryGain");
     bypassParam_ = apvts_.getRawParameterValue("bypass");
-    bypassParameter_ = apvts_.getParameter("bypass");
     for (int index = 0; index < kSourceSlots; ++index) {
         slots_[static_cast<std::size_t>(index)] =
             std::make_unique<SourceSlot>();
@@ -40,12 +42,27 @@ DPWIMAudioProcessor::DPWIMAudioProcessor()
         sourceFinePitchParams_[static_cast<std::size_t>(index)] =
             apvts_.getRawParameterValue(finePitchParameter(index));
     }
+    apvts_.addParameterListener("targetLatency", this);
+    apvts_.addParameterListener("bypass", this);
+    for (int index = 0; index < kSourceSlots; ++index) {
+        apvts_.addParameterListener(offsetParameter(index), this);
+        apvts_.addParameterListener(transposeParameter(index), this);
+        apvts_.addParameterListener(finePitchParameter(index), this);
+    }
     startTimerHz(10);
 }
 
 DPWIMAudioProcessor::~DPWIMAudioProcessor()
 {
     stopTimer();
+    apvts_.removeParameterListener("targetLatency", this);
+    apvts_.removeParameterListener("bypass", this);
+    for (int index = 0; index < kSourceSlots; ++index) {
+        apvts_.removeParameterListener(offsetParameter(index), this);
+        apvts_.removeParameterListener(transposeParameter(index), this);
+        apvts_.removeParameterListener(finePitchParameter(index), this);
+    }
+    cancelPendingUpdate();
     stopAllSlots();
 }
 
@@ -75,7 +92,9 @@ DPWIMAudioProcessor::createParameterLayout()
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> parameters;
     parameters.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"targetLatency", 1}, "Base Latency",
-        juce::NormalisableRange<float>(10.0f, 250.0f, 0.1f), 10.0f,
+        juce::NormalisableRange<float>(
+            10.0f, kMaximumBaseLatencyMs, 0.1f),
+        10.0f,
         juce::AudioParameterFloatAttributes().withLabel("ms")));
     parameters.push_back(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID{"dryEnabled", 1}, "Dry Input Enabled", true));
@@ -111,7 +130,7 @@ DPWIMAudioProcessor::createParameterLayout()
             juce::AudioParameterFloatAttributes().withLabel("ct")));
     }
     parameters.push_back(std::make_unique<juce::AudioParameterBool>(
-        juce::ParameterID{"bypass", 1}, "Bypass", false));
+        juce::ParameterID{"bypass", 1}, "DPWIM Bypass", false));
     return {parameters.begin(), parameters.end()};
 }
 
@@ -131,8 +150,16 @@ void DPWIMAudioProcessor::prepareToPlay(double sampleRate,
 {
     stopAllSlots();
     sampleRate_.store(sampleRate, std::memory_order_release);
-    dryDelay_.prepare(getTotalNumOutputChannels(),
-                      static_cast<int>(std::ceil(sampleRate * 0.5)));
+    const auto maximumTimelineDelaySamples =
+        static_cast<int>(std::ceil(
+            sampleRate
+            * static_cast<double>(
+                kMaximumBaseLatencyMs
+                + kMaximumNegativeOffsetMs)
+            / 1000.0))
+        + dpwim::PhaseVocoderPitchShifter::kLatencySamples;
+    dryDelay_.prepare(
+        getTotalNumOutputChannels(), maximumTimelineDelaySamples);
     for (auto& slot : slots_) {
         slot->ring.configure(
             static_cast<std::size_t>(std::ceil(sampleRate * 5.0)), 2);
@@ -149,6 +176,8 @@ void DPWIMAudioProcessor::prepareToPlay(double sampleRate,
         meter.store(0.0f, std::memory_order_relaxed);
     for (auto& meter : mainOutputMeterPeaks_)
         meter.store(0.0f, std::memory_order_relaxed);
+    audioPathMode_ = AudioPathMode::Uninitialised;
+    lastAudioBlockTick_ = 0;
     prepared_.store(true, std::memory_order_release);
     updateLatencyReport();
     for (int slot = 0; slot < kSourceSlots; ++slot)
@@ -160,6 +189,8 @@ void DPWIMAudioProcessor::releaseResources()
     prepared_.store(false, std::memory_order_release);
     stopAllSlots();
     dryDelay_.reset();
+    audioPathMode_ = AudioPathMode::Uninitialised;
+    lastAudioBlockTick_ = 0;
     for (auto& meter : dryMeterPeaks_)
         meter.store(0.0f, std::memory_order_relaxed);
     for (auto& meter : mainOutputMeterPeaks_)
@@ -172,14 +203,12 @@ void DPWIMAudioProcessor::releaseResources()
 void DPWIMAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                                        juce::MidiBuffer&)
 {
-    hostBypassActive_.store(false, std::memory_order_release);
     processAudioBlock(buffer, false);
 }
 
 void DPWIMAudioProcessor::processBlockBypassed(
     juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
 {
-    hostBypassActive_.store(true, std::memory_order_release);
     processAudioBlock(buffer, true);
 }
 
@@ -193,6 +222,15 @@ void DPWIMAudioProcessor::processAudioBlock(
         return;
 
     const double rate = sampleRate_.load(std::memory_order_acquire);
+    const bool internalBypassed =
+        bypassParam_->load(std::memory_order_relaxed) >= 0.5f;
+    const auto mode = internalBypassed
+        ? AudioPathMode::InternalBypass
+        : forceBypass
+            ? AudioPathMode::HostBypass
+            : AudioPathMode::Normal;
+    prepareAudioPath(mode, frames, rate);
+
     constexpr float releaseDbPerSecond = 18.0f;
     const auto release = std::pow(
         10.0f,
@@ -200,10 +238,18 @@ void DPWIMAudioProcessor::processAudioBlock(
             * static_cast<float>(frames)
             / static_cast<float>(std::max(1.0, rate))
             / 20.0f);
-    const bool bypassed =
-        forceBypass
-        || bypassParam_->load(std::memory_order_relaxed) >= 0.5f;
-    if (bypassed) {
+    if (mode != AudioPathMode::Normal) {
+        if (mode == AudioPathMode::HostBypass) {
+            const auto timeline = currentTimeline();
+            const int targetFrames = dpwim::latencySamples(
+                timeline.effectiveLatencyMs, rate);
+            std::array<float*, 2> outputs{
+                buffer.getWritePointer(0),
+                channels > 1 ? buffer.getWritePointer(1)
+                             : buffer.getWritePointer(0)};
+            dryDelay_.process(
+                outputs.data(), channels, frames, targetFrames);
+        }
         for (int meterChannel = 0; meterChannel < 2; ++meterChannel) {
             const auto channel = std::min(meterChannel, channels - 1);
             const auto magnitude =
@@ -224,13 +270,6 @@ void DPWIMAudioProcessor::processAudioBlock(
 
     const bool dryEnabled =
         dryEnabledParam_->load(std::memory_order_relaxed) >= 0.5f;
-    if (dryEnabled) {
-        const float dryDb = dryGainParam_->load(std::memory_order_relaxed);
-        buffer.applyGain(dbToGain(dryDb));
-    } else {
-        buffer.clear();
-    }
-
     const auto timeline = currentTimeline();
     const int targetFrames = dpwim::latencySamples(
         timeline.effectiveLatencyMs, rate);
@@ -240,6 +279,12 @@ void DPWIMAudioProcessor::processAudioBlock(
         channels > 1 ? buffer.getWritePointer(1)
                      : buffer.getWritePointer(0)};
     dryDelay_.process(outputs.data(), channels, frames, targetFrames);
+    if (dryEnabled) {
+        const float dryDb = dryGainParam_->load(std::memory_order_relaxed);
+        buffer.applyGain(dbToGain(dryDb));
+    } else {
+        buffer.clear();
+    }
     for (int meterChannel = 0; meterChannel < 2; ++meterChannel) {
         const auto channel = std::min(meterChannel, channels - 1);
         updateMeterPeak(
@@ -328,6 +373,44 @@ void DPWIMAudioProcessor::processAudioBlock(
     }
 }
 
+void DPWIMAudioProcessor::prepareAudioPath(
+    AudioPathMode mode, int frames, double rate) noexcept
+{
+    const auto now = juce::Time::getHighResolutionTicks();
+    bool discontinuity = false;
+    if (lastAudioBlockTick_ != 0) {
+        const auto elapsed =
+            juce::Time::highResolutionTicksToSeconds(
+                now - lastAudioBlockTick_);
+        const auto expected =
+            static_cast<double>(frames) / std::max(1.0, rate);
+        discontinuity =
+            elapsed > std::max(0.05, expected * 4.0);
+    }
+
+    const bool previousUsesDryDelay =
+        audioPathMode_ == AudioPathMode::Normal
+        || audioPathMode_ == AudioPathMode::HostBypass;
+    const bool nextUsesDryDelay =
+        mode == AudioPathMode::Normal
+        || mode == AudioPathMode::HostBypass;
+    if (discontinuity
+        || audioPathMode_ == AudioPathMode::Uninitialised
+        || previousUsesDryDelay != nextUsesDryDelay)
+        dryDelay_.reset();
+
+    if (mode != audioPathMode_ || discontinuity) {
+        for (auto& slot : slots_) {
+            slot->ring.reprime();
+            slot->pitchShifter.reset();
+            slot->lastRequestedFillFrames = -1.0;
+        }
+    }
+
+    audioPathMode_ = mode;
+    lastAudioBlockTick_ = now;
+}
+
 void DPWIMAudioProcessor::updateMeterPeak(
     std::atomic<float>& meter, float peak, float release) noexcept
 {
@@ -343,12 +426,34 @@ void DPWIMAudioProcessor::timerCallback()
     updateLatencyReport();
 }
 
+void DPWIMAudioProcessor::parameterChanged(
+    const juce::String&, float)
+{
+    requestLatencyReportUpdate();
+}
+
+void DPWIMAudioProcessor::requestLatencyReportUpdate()
+{
+    if (auto* messageManager =
+            juce::MessageManager::getInstanceWithoutCreating();
+        messageManager != nullptr
+        && messageManager->isThisTheMessageThread()) {
+        updateLatencyReport();
+    } else {
+        triggerAsyncUpdate();
+    }
+}
+
+void DPWIMAudioProcessor::handleAsyncUpdate()
+{
+    updateLatencyReport();
+}
+
 void DPWIMAudioProcessor::updateLatencyReport()
 {
     const auto rate = sampleRate_.load(std::memory_order_acquire);
     const bool bypassed =
-        bypassParam_->load(std::memory_order_relaxed) >= 0.5f
-        || hostBypassActive_.load(std::memory_order_acquire);
+        bypassParam_->load(std::memory_order_relaxed) >= 0.5f;
     const auto latency = bypassed
         ? 0
         : dpwim::latencySamples(
@@ -403,8 +508,7 @@ DPWIMAudioProcessor::latencySnapshot() const noexcept
     const auto timeline = currentTimeline();
     const auto rate = sampleRate_.load(std::memory_order_acquire);
     const bool bypassed =
-        bypassParam_->load(std::memory_order_relaxed) >= 0.5f
-        || hostBypassActive_.load(std::memory_order_acquire);
+        bypassParam_->load(std::memory_order_relaxed) >= 0.5f;
     if (bypassed)
         return {timeline.targetLatencyMs, 0.0, 0.0, 0};
     return {
@@ -451,7 +555,7 @@ void DPWIMAudioProcessor::setSource(int slotIndex, SourceMode mode,
         return;
     auto& slot = *slots_[static_cast<std::size_t>(slotIndex)];
     slot.capture.stop();
-    slot.ring.reset();
+    slot.ring.discard();
     {
         std::lock_guard<std::mutex> lock(slot.identityMutex);
         slot.executable = executable;
@@ -460,6 +564,7 @@ void DPWIMAudioProcessor::setSource(int slotIndex, SourceMode mode,
     slot.mode.store(static_cast<int>(mode), std::memory_order_release);
     slot.enabled.store(
         mode != SourceMode::Off, std::memory_order_release);
+    requestLatencyReportUpdate();
     startSlot(slotIndex);
 }
 
@@ -475,9 +580,10 @@ void DPWIMAudioProcessor::setSourceEnabled(int slotIndex, bool enabled)
         slot.enabled.exchange(shouldEnable, std::memory_order_acq_rel);
     if (wasEnabled == shouldEnable)
         return;
+    requestLatencyReportUpdate();
     if (!shouldEnable) {
         slot.capture.stop();
-        slot.ring.reset();
+        slot.ring.discard();
         slot.fillFrames.store(0.0, std::memory_order_relaxed);
         slot.ratio.store(1.0, std::memory_order_relaxed);
         return;

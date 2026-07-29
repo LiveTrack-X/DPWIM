@@ -65,7 +65,7 @@ bool probe(juce::AudioPluginFormat& format, const juce::String& path)
         checkDefault(*instance, "Dry Input Enabled", 1.0f)
         && defaultsOk;
     defaultsOk =
-        checkDefault(*instance, "Bypass", 0.0f)
+        checkDefault(*instance, "DPWIM Bypass", 0.0f)
         && defaultsOk;
     for (int slot = 0; slot < 4; ++slot)
         defaultsOk = checkDefault(
@@ -130,7 +130,7 @@ bool probe(juce::AudioPluginFormat& format, const juce::String& path)
         }
     }
     const bool bypassParameterFound =
-        setParameter(*instance, "Bypass", 1.0f);
+        setParameter(*instance, "DPWIM Bypass", 1.0f);
     instance->releaseResources();
     instance->prepareToPlay(48000.0, 512);
     const int bypassLatency = instance->getLatencySamples();
@@ -156,10 +156,41 @@ bool probe(juce::AudioPluginFormat& format, const juce::String& path)
         && bypassLatency == 0
         && bypassImpulseFrame == 0
         && std::abs(bypassImpulseValue - 0.25f) < 0.001f;
-    setParameter(*instance, "Bypass", 0.0f);
+    setParameter(*instance, "DPWIM Bypass", 0.0f);
     setParameter(*instance, "Dry Input Enabled", 1.0f);
     instance->releaseResources();
     instance->prepareToPlay(48000.0, 512);
+    const bool bypassLatencyRestored =
+        instance->getLatencySamples() == latency;
+
+    auto* hostBypass = instance->getBypassParameter();
+    const bool hostBypassSeparated =
+        hostBypass != nullptr
+        && hostBypass->getName(128) != "DPWIM Bypass";
+    if (hostBypass != nullptr)
+        hostBypass->setValueNotifyingHost(1.0f);
+    const int externalBypassLatency =
+        instance->getLatencySamples();
+    int externalBypassImpulseFrame = -1;
+    for (int block = 0; block < 2; ++block) {
+        audio.clear();
+        if (block == 0) {
+            audio.setSample(0, 0, 0.25f);
+            audio.setSample(1, 0, 0.25f);
+        }
+        instance->processBlock(audio, midi);
+        for (int frame = 0; frame < audio.getNumSamples(); ++frame)
+            if (externalBypassImpulseFrame < 0
+                && std::abs(audio.getSample(0, frame)) > 0.2f)
+                externalBypassImpulseFrame = block * 512 + frame;
+    }
+    if (hostBypass != nullptr)
+        hostBypass->setValueNotifyingHost(0.0f);
+    const bool externalBypassStable =
+        hostBypassSeparated
+        && externalBypassLatency == latency
+        && instance->getLatencySamples() == latency
+        && externalBypassImpulseFrame == latency;
 
     bool stateRoundTrip = false;
     if (auto parameters = instance->getParameters();
@@ -183,10 +214,15 @@ bool probe(juce::AudioPluginFormat& format, const juce::String& path)
               << (dryOffSilent ? "silent" : "audible")
               << ", bypass="
               << (bypassImmediate ? "immediate" : "failed")
+              << ", bypass_latency="
+              << (bypassLatencyRestored ? "stable" : "failed")
+              << ", host_bypass="
+              << (externalBypassStable ? "separate/stable" : "failed")
               << ", state="
               << (stateRoundTrip ? "restored" : "failed") << '\n';
     instance->releaseResources();
     return finite && dryAligned && dryOffSilent && bypassImmediate
+        && bypassLatencyRestored && externalBypassStable
         && stateRoundTrip && defaultsOk;
 }
 

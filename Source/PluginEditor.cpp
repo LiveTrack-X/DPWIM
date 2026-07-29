@@ -25,7 +25,7 @@ constexpr auto baseLatencyTooltip =
 constexpr auto outputLatencyTooltip =
     "Output latency equals the Base Latency plus any automatic sync addition. "
     "The sample count is the latency reported to the host at the current "
-    "sample rate.";
+    "sample rate. This is DPWIM latency, not end-to-end device latency.";
 constexpr auto syncOffsetTooltip =
     "Moves this source relative to the shared timeline. Negative values make "
     "it earlier by delaying the other paths. Positive values delay only this "
@@ -369,15 +369,18 @@ void DPWIMLevelMeter::setLevels(float left, float right)
             juce::Decibels::gainToDecibels(gain, -60.0f);
         if (levelsDb_[channel] >= heldDb_[channel]) {
             heldDb_[channel] = levelsDb_[channel];
-            holdTicks_[channel] = 5;
+            holdTicks_[channel] = kPeakHoldTicks;
         } else if (holdTicks_[channel] > 0) {
             --holdTicks_[channel];
         } else {
             heldDb_[channel] = std::max(
-                levelsDb_[channel], heldDb_[channel] - 3.0f);
+                levelsDb_[channel],
+                heldDb_[channel]
+                    - kPeakDecayDbPerSecond
+                        / static_cast<float>(kRefreshHz));
         }
         if (gain >= 1.0f)
-            clipTicks_[channel] = 10;
+            clipTicks_[channel] = kClipHoldTicks;
         else if (clipTicks_[channel] > 0)
             --clipTicks_[channel];
     }
@@ -622,7 +625,8 @@ DPWIMAudioProcessorEditor::DPWIMAudioProcessorEditor(
     bypassButton_.setComponentID("globalBypass");
     bypassButton_.setTooltip(
         "Immediately passes the raw host input at unity while muting captured "
-        "app sources. Plugin output latency becomes 0 samples.");
+        "app sources. DPWIM output latency becomes 0 samples; host and device "
+        "buffer latency is not included.");
     bypassButton_.setColour(
         juce::TextButton::textColourOnId, juce::Colour(updateAccent));
     addAndMakeVisible(bypassButton_);
@@ -748,7 +752,7 @@ DPWIMAudioProcessorEditor::DPWIMAudioProcessorEditor(
         row.power.onClick = [this, index] {
             const auto snapshot = processor_.sourceSnapshot(index);
             processor_.setSourceEnabled(index, !snapshot.enabled);
-            timerCallback();
+            refreshControlStateNow();
         };
         row.advanced.onClick = [this, index] {
             showAdvanced(index);
@@ -759,11 +763,16 @@ DPWIMAudioProcessorEditor::DPWIMAudioProcessorEditor(
             | juce::RectanglePlacement::onlyReduceInSize);
     }
 
-    refreshButton_.onClick = [this] { refreshProcesses(); };
-    refreshProcesses();
-    timerCallback();
+    dryPower_.onClick = [this] { refreshControlStateNow(); };
+    bypassButton_.onClick = [this] { refreshControlStateNow(); };
+    refreshButton_.onClick = [this] {
+        refreshProcesses();
+        refreshControlStateNow();
+    };
     updateChecker_.start(ProjectInfo::versionString);
-    startTimerHz(5);
+    refreshProcesses();
+    refreshControlStateNow();
+    startTimerHz(kMeterRefreshHz);
     resized();
 }
 
@@ -1060,8 +1069,7 @@ void DPWIMAudioProcessorEditor::applySelection(int row)
         }
     }
     refreshProcesses();
-    timerCallback();
-    repaint();
+    refreshControlStateNow();
 }
 
 void DPWIMAudioProcessorEditor::showAdvanced(int row)
@@ -1142,10 +1150,35 @@ juce::String DPWIMAudioProcessorEditor::formatLatencySummary(
 
 void DPWIMAudioProcessorEditor::timerCallback()
 {
-    const auto update = updateChecker_.snapshot();
-    if (update.state == dpwim::UpdateChecker::State::Available)
-        showAvailableUpdate(
-            update.latestVersion, update.releaseUrl);
+    const auto levels = processor_.levelSnapshot();
+    dryMeter_.setLevels(levels.dry[0], levels.dry[1]);
+    mainOutputMeter_.setLevels(
+        levels.mainOutput[0], levels.mainOutput[1]);
+    for (int index = 0;
+         index < static_cast<int>(rows_.size()); ++index) {
+        auto& row = rows_[static_cast<std::size_t>(index)];
+        row.meter.setLevels(
+            levels.sources[static_cast<std::size_t>(index)][0],
+            levels.sources[static_cast<std::size_t>(index)][1]);
+    }
+
+    if (controlRefreshCountdown_ > 0) {
+        --controlRefreshCountdown_;
+        return;
+    }
+    controlRefreshCountdown_ =
+        kMeterRefreshHz / kControlRefreshHz - 1;
+
+    if (!updateCheckHandled_) {
+        const auto update = updateChecker_.snapshot();
+        if (update.state == dpwim::UpdateChecker::State::Available)
+            showAvailableUpdate(
+                update.latestVersion, update.releaseUrl);
+        updateCheckHandled_ =
+            update.state == dpwim::UpdateChecker::State::Available
+            || update.state == dpwim::UpdateChecker::State::UpToDate
+            || update.state == dpwim::UpdateChecker::State::Failed;
+    }
 
     const auto rate = processor_.currentSampleRate();
     sampleRateLabel_.setText(
@@ -1170,10 +1203,6 @@ void DPWIMAudioProcessorEditor::timerCallback()
     bypassButton_.setButtonText(bypassed ? "BYPASSED" : "BYPASS");
 
     const bool dryEnabled = dryPower_.getToggleState();
-    const auto levels = processor_.levelSnapshot();
-    dryMeter_.setLevels(levels.dry[0], levels.dry[1]);
-    mainOutputMeter_.setLevels(
-        levels.mainOutput[0], levels.mainOutput[1]);
     dryMeter_.setEnabled(bypassed || dryEnabled);
     dryPower_.setButtonText(dryEnabled ? "ON" : "OFF");
     dryPower_.setColour(
@@ -1191,9 +1220,6 @@ void DPWIMAudioProcessorEditor::timerCallback()
         const bool hasSource =
             snapshot.mode != DPWIMAudioProcessor::SourceMode::Off;
         const bool enabled = hasSource && snapshot.enabled;
-        row.meter.setLevels(
-            levels.sources[static_cast<std::size_t>(index)][0],
-            levels.sources[static_cast<std::size_t>(index)][1]);
         row.meter.setEnabled(enabled && !bypassed);
         row.active = enabled && snapshot.running;
         row.advanced.setEnabled(hasSource);
@@ -1217,4 +1243,10 @@ void DPWIMAudioProcessorEditor::timerCallback()
             juce::dontSendNotification);
     }
     repaint();
+}
+
+void DPWIMAudioProcessorEditor::refreshControlStateNow()
+{
+    controlRefreshCountdown_ = 0;
+    timerCallback();
 }

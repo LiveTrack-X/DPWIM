@@ -11,6 +11,11 @@ class DPWIMLevelMeter final
     : public juce::Component,
       public juce::SettableTooltipClient {
 public:
+    static constexpr int kRefreshHz = 60;
+    static constexpr int kPeakHoldTicks = kRefreshHz;
+    static constexpr int kClipHoldTicks = kRefreshHz * 2;
+    static constexpr float kPeakDecayDbPerSecond = 24.0f;
+
     enum class Layout {
         Horizontal,
         Vertical,
@@ -39,6 +44,9 @@ class DPWIMAudioProcessorEditor final
     : public juce::AudioProcessorEditor,
       private juce::Timer {
 public:
+    static constexpr int kMeterRefreshHz = DPWIMLevelMeter::kRefreshHz;
+    static constexpr int kControlRefreshHz = 5;
+
     explicit DPWIMAudioProcessorEditor(DPWIMAudioProcessor&);
     ~DPWIMAudioProcessorEditor() override;
 
@@ -75,6 +83,7 @@ private:
     };
 
     void timerCallback() override;
+    void refreshControlStateNow();
     void refreshProcesses();
     void applySelection(int row);
     void showAdvanced(int row);
@@ -126,6 +135,8 @@ private:
     std::unique_ptr<juce::Component> testingAdvancedPanel_;
     dpwim::UpdateChecker updateChecker_;
     juce::String availableVersion_;
+    int controlRefreshCountdown_ = 0;
+    bool updateCheckHandled_ = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DPWIMAudioProcessorEditor)
 };

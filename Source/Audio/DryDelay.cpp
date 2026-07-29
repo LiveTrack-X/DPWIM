@@ -11,6 +11,7 @@ void DryDelay::prepare(int channels, int maximumDelaySamples)
     buffers_.assign(static_cast<std::size_t>(std::max(channels, 1)),
                     std::vector<float>(capacity_, 0.0f));
     writePosition_ = 0;
+    validFrames_ = 0;
     currentDelaySamples_ = -1;
     previousDelaySamples_ = 0;
     targetDelaySamples_ = 0;
@@ -19,10 +20,11 @@ void DryDelay::prepare(int channels, int maximumDelaySamples)
 
 void DryDelay::reset() noexcept
 {
-    for (auto& buffer : buffers_)
-        std::fill(buffer.begin(), buffer.end(), 0.0f);
     writePosition_ = 0;
+    validFrames_ = 0;
     currentDelaySamples_ = -1;
+    previousDelaySamples_ = 0;
+    targetDelaySamples_ = 0;
     transitionRemaining_ = 0;
 }
 
@@ -64,8 +66,20 @@ void DryDelay::process(float* const* channels, int channelCount, int frames,
             auto& line = buffers_[static_cast<std::size_t>(channel)];
             const float input = channels[channel][frame];
             line[writePosition_] = input;
-            const float previous = line[previousReadPosition];
-            const float target = line[targetReadPosition];
+            const bool previousValid =
+                previousDelaySamples_ == 0
+                || validFrames_
+                    >= static_cast<std::size_t>(
+                        previousDelaySamples_);
+            const bool targetValid =
+                targetDelaySamples_ == 0
+                || validFrames_
+                    >= static_cast<std::size_t>(
+                        targetDelaySamples_);
+            const float previous =
+                previousValid ? line[previousReadPosition] : 0.0f;
+            const float target =
+                targetValid ? line[targetReadPosition] : 0.0f;
             channels[channel][frame] =
                 previous + (target - previous) * transition;
         }
@@ -77,6 +91,7 @@ void DryDelay::process(float* const* channels, int channelCount, int frames,
             }
         }
         writePosition_ = (writePosition_ + 1) % capacity_;
+        validFrames_ = std::min(validFrames_ + 1, capacity_);
     }
 }
 

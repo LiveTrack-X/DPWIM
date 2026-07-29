@@ -82,14 +82,21 @@ normal 64-bit VST2/VST3 effect.
 - Automatic common-timeline rebase: a negative source offset delays the other
   active paths by only the amount needed to keep that source causal.
 - OUT latency indicator: shows effective output latency, added sync latency,
-  and the sample count reported to the host.
+  and the sample count reported to the host. It is DPWIM's own delay, not a
+  measurement of end-to-end host or device latency.
 - Per-source Advanced: Transpose (-12 to +12 semitones) and Fine Pitch
   (-100 to +100 cents).
-- Global BYPASS: immediately passes the raw host input at unity, excludes all
-  captured sources and DPWIM processing, and reports zero plugin latency.
+- Global BYPASS inside DPWIM: immediately passes the raw host input at unity,
+  excludes all captured sources and DPWIM processing, and reports zero DPWIM
+  latency.
+- Host/DAW bypass: remains a separate standard bypass path. It passes raw
+  input at the unchanged OUT delay when the host invokes plugin bypass
+  processing, so the audio position and PDC report stay consistent. A host
+  that removes the plugin node entirely may provide its own immediate bypass.
 - Horizontal L/R meters: show each Dry/source contribution after its gain and
   source processing, with a left-to-right dBFS scale, peak hold, and clip
-  indication. In BYPASS, only the immediate raw Dry Input is metered.
+  indication. Meter animation refreshes at 60 Hz. In BYPASS, only the immediate
+  raw Dry Input is metered.
 - Vertical MAIN OUT meter: shows the final summed stereo output at the far
   right. During BYPASS it follows the raw host input that is passed through.
 - Footer status: `Created by LiveTrack` links to the DPWIM repository. When a
@@ -117,6 +124,15 @@ display.
 offsets and active source processing can add SYNC latency; positive offsets
 delay only their source.
 
+OUT은 DPWIM이 추가하고 호스트에 보고하는 지연입니다. DirectPipe나 DAW가
+표시하는 전체 지연에는 장치 버퍼, 다른 플러그인, 호스트 처리 시간이 더해질
+수 있으며 실제 출력-입력 왕복을 측정한 값은 아닙니다. DPWIM 내부 BYPASS는
+DPWIM 지연을 0으로 만들지만, 호스트 자체의 체인 바이패스는 별도 경로로
+동작합니다. 호스트가 플러그인의 바이패스 처리를 호출하는 동안에는 원음을
+기존 OUT 지연에 맞춰 출력하므로 실제 오디오 위치와 PDC 보고가 일치합니다.
+호스트가 플러그인 노드를 체인에서 완전히 분리하는 방식이라면 호스트 자체의
+즉시 바이패스 동작을 따릅니다.
+
 Each captured source has its own bounded FIFO and drift-correction clock. App
 mode includes the selected process tree; desktop mode captures system output
 while excluding the current host process tree to reduce feedback.
@@ -132,7 +148,7 @@ Speed, Tempo, and Loop processing are not part of the current scope.
 Speed, Tempo, Loop 처리는 현재 범위에 포함되지 않습니다.
 
 The editor performs one short HTTPS request to GitHub's public latest-release
-endpoint when opened. It sends no project, audio, or user data. Offline or
+endpoint once when opened. It sends no project, audio, or user data. Offline or
 failed checks stay silent. DPWIM does not download or replace plugin files
 automatically.
 

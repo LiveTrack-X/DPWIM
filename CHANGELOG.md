@@ -4,6 +4,31 @@ All notable changes to DPWIM are documented here.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-07-29
+
+### Fixed
+
+- Level meters now repaint at 60 Hz instead of 5 Hz while source/status and
+  update UI work remains throttled to 5 Hz.
+- Peak and clip hold durations remain time-correct at the higher refresh rate,
+  and completed update checks are removed from subsequent timer work.
+- External host bypass is now separate from DPWIM's persistent internal
+  bypass. Its raw audio follows the unchanged OUT delay when the host invokes
+  bypass processing, so audio timing and the PDC report remain consistent.
+- Internal DPWIM bypass still passes raw input immediately and reports zero
+  plugin latency; its latency transition now updates immediately on the
+  message thread and safely defers audio-thread automation.
+- Base Latency, Sync Offset, pitch, and source-enable changes now update the
+  host latency report immediately instead of depending on the 10 Hz fallback.
+- Bypass transitions and callback gaps invalidate stale delay history without
+  interrupting a continuous normal-to-host-bypass Dry stream.
+- The Dry delay capacity now covers the complete supported Base, negative
+  Offset, and pitch-latency combination at low sample rates.
+- Source replacement and disable operations now invalidate FIFO history
+  without mutating audio-consumer state from the UI thread.
+- Latency tooltips now clarify that OUT is DPWIM's host-reported delay, not
+  measured end-to-end host or device latency.
+
 ## [0.3.0] - 2026-07-29
 
 ### Added

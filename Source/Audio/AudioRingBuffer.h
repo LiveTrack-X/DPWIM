@@ -11,6 +11,7 @@ class AudioRingBuffer {
 public:
     void configure(std::size_t capacityFrames, std::uint32_t channels);
     void reset() noexcept;
+    void discard() noexcept;
     void reprime(std::uint32_t fadeFrames = 128) noexcept;
 
     void write(const float* interleaved, std::uint32_t frames,
@@ -32,16 +33,20 @@ public:
     std::uint32_t channels() const noexcept { return channels_; }
 
 private:
+    void resetConsumerState() noexcept;
+
     std::vector<float> data_;
     std::size_t capacityFrames_ = 0;
     std::uint32_t channels_ = 0;
     std::atomic<std::uint64_t> writeFrame_{0};
+    std::atomic<std::uint64_t> generation_{0};
 
     double readFrame_ = 0.0; // audio-consumer thread only
     bool primed_ = false;    // audio-consumer thread only
     double ratio_ = 1.0;     // audio-consumer thread only
     std::uint32_t fadeTotal_ = 0;
     std::uint32_t fadeRemaining_ = 0;
+    std::uint64_t consumerGeneration_ = 0;
 };
 
 } // namespace dpwim
