@@ -229,11 +229,11 @@ int main()
     const auto rebasedLatency = source.latencySnapshot();
     check(std::abs(rebasedLatency.targetMs - 10.0) < 0.01,
           "target latency remains the configured safety buffer");
-    check(std::abs(rebasedLatency.syncAdditionMs - 25.0) < 0.01,
-          "negative source offset adds common sync latency");
-    check(std::abs(rebasedLatency.effectiveMs - 35.0) < 0.01,
-          "effective latency includes negative-offset rebase");
-    check(rebasedLatency.samples == 1680,
+    check(std::abs(rebasedLatency.syncAdditionMs - 35.0) < 0.01,
+          "capture safety and negative offset add common sync latency");
+    check(std::abs(rebasedLatency.effectiveMs - 45.0) < 0.01,
+          "effective latency includes capture safety and offset rebase");
+    check(rebasedLatency.samples == 2160,
           "effective latency reports rounded host samples");
     source.setSourceEnabled(1, false);
     const auto disabledLatency = source.latencySnapshot();
@@ -246,7 +246,7 @@ int main()
         0, {});
     setPlainValue(timingProcessor, "sourceOffset0", -25.0f);
     timingProcessor.prepareToPlay(48000.0, 512);
-    constexpr int rebasedBlockSafeLatency = 1714;
+    constexpr int rebasedBlockSafeLatency = 2160;
     check(timingProcessor.getLatencySamples() == rebasedBlockSafeLatency,
           "processor reports effective rebased latency to the host");
     const auto preparedRebasedLatency =
@@ -254,11 +254,11 @@ int main()
     check(std::abs(preparedRebasedLatency.targetMs - 10.0) < 0.01
               && std::abs(
                      preparedRebasedLatency.syncAdditionMs
-                     - 25.7083333333)
+                     - 35.0)
                   < 0.01
               && std::abs(
                      preparedRebasedLatency.effectiveMs
-                     - 35.7083333333)
+                     - 45.0)
                   < 0.01
               && preparedRebasedLatency.samples
                   == rebasedBlockSafeLatency,
@@ -295,10 +295,11 @@ int main()
         0, DPWIMAudioProcessor::SourceMode::Application,
         0, {});
     blockSafeProcessor.prepareToPlay(48000.0, 512);
-    constexpr int blockSafeLatency = 514;
+    constexpr int preparedBlockSafetyFrames = 514;
+    constexpr int captureStabilityLatency = 960;
     check(
-        blockSafeProcessor.getLatencySamples() == blockSafeLatency,
-        "active capture timeline includes PLL and interpolation safety");
+        blockSafeProcessor.getLatencySamples() == captureStabilityLatency,
+        "active capture timeline includes shared-mode jitter safety");
     int blockSafeImpulseFrame = -1;
     for (int block = 0; block < 3; ++block) {
         audio.clear();
@@ -314,8 +315,8 @@ int main()
                     block * audio.getNumSamples() + frame;
     }
     check(
-        blockSafeImpulseFrame == blockSafeLatency,
-        "block-safe Dry delay matches the latency reported to the host");
+        blockSafeImpulseFrame == captureStabilityLatency,
+        "capture-stable Dry delay matches the latency reported to the host");
     blockSafeProcessor.releaseResources();
 
     DPWIMAudioProcessor observedBlockProcessor;
@@ -325,9 +326,41 @@ int main()
     setPlainValue(
         observedBlockProcessor, "dryEnabled", 0.0f);
     observedBlockProcessor.prepareToPlay(48000.0, 256);
-    check(observedBlockProcessor.getLatencySamples() == blockSafeLatency,
-          "active capture preflights a safe 512-sample host callback");
+    check(
+        observedBlockProcessor.getLatencySamples()
+            == captureStabilityLatency,
+        "active capture preflights a shared-mode jitter reserve");
     std::vector<float> capturedAudio(8192, 1.0f);
+
+    DPWIMAudioProcessor captureJitterProcessor;
+    captureJitterProcessor.setSource(
+        0, DPWIMAudioProcessor::SourceMode::Application,
+        0, {});
+    setPlainValue(
+        captureJitterProcessor, "dryEnabled", 0.0f);
+    captureJitterProcessor.prepareToPlay(48000.0, 256);
+    check(
+        captureJitterProcessor.getLatencySamples()
+            == captureStabilityLatency,
+        "active capture reserves 20 ms at 48 kHz");
+    std::vector<float> delayedCapturePacket(2880, 1.0f);
+    DPWIMProcessorTestAccess::writeCapturedAudio(
+        captureJitterProcessor, 0, delayedCapturePacket, 1440, 2);
+    bool captureSurvivedLatePacket = true;
+    juce::AudioBuffer<float> jitterAudio(2, 256);
+    for (int block = 0; block < 3; ++block) {
+        jitterAudio.clear();
+        captureJitterProcessor.processBlock(jitterAudio, midi);
+        captureSurvivedLatePacket =
+            captureSurvivedLatePacket
+            && jitterAudio.getMagnitude(
+                   0, 0, jitterAudio.getNumSamples()) > 0.9f;
+    }
+    check(
+        captureSurvivedLatePacket,
+        "active capture survives one late shared-mode packet");
+    captureJitterProcessor.releaseResources();
+
     DPWIMProcessorTestAccess::writeCapturedAudio(
         observedBlockProcessor, 0, capturedAudio, 4096, 2);
     juce::AudioBuffer<float> primedSourceAudio(2, 256);
@@ -348,7 +381,9 @@ int main()
     check(largerAudio.getMagnitude(
               0, 0, largerAudio.getNumSamples()) < 1.0e-6f,
           "the first oversized callback mutes a fully primed source");
-    check(observedBlockProcessor.getLatencySamples() == blockSafeLatency,
+    check(
+        observedBlockProcessor.getLatencySamples()
+            == captureStabilityLatency,
           "the audio thread only publishes a pending block observation");
     constexpr int observedBlockLatency = 1027;
     check(waitForLatency(
@@ -357,7 +392,7 @@ int main()
     check(
         DPWIMProcessorTestAccess::committedBlockSafetyFrames(
             observedBlockProcessor)
-                == blockSafeLatency
+                == preparedBlockSafetyFrames
             && DPWIMProcessorTestAccess::pendingBlockSafetyFrames(
                    observedBlockProcessor)
                 == observedBlockLatency,
@@ -403,7 +438,7 @@ int main()
     oversizedBlockProcessor.processBlock(oversizedAudio, midi);
     check(
         oversizedBlockProcessor.getLatencySamples()
-            == blockSafeLatency,
+            == captureStabilityLatency,
         "callbacks beyond reserve leave current PDC stable until commit");
     constexpr int boundedRealtimeLatency = 8209;
     check(waitForLatency(
@@ -649,10 +684,10 @@ int main()
     setPlainValue(pitchTimeline, "sourceTranspose0", 12.0f);
     pitchTimeline.prepareToPlay(48000.0, 512);
     const auto pitchLatency = pitchTimeline.latencySnapshot();
-    check(std::abs(pitchLatency.effectiveMs - 42.7083333333) < 0.01,
-          "block safety and pitch processing share one effective latency");
-    check(pitchLatency.samples == 2050,
-          "block-safe pitch latency is included in host sample reporting");
+    check(std::abs(pitchLatency.effectiveMs - 52.0) < 0.01,
+          "capture safety and pitch processing share one effective latency");
+    check(pitchLatency.samples == 2496,
+          "capture-stable pitch latency is included in host reporting");
     pitchTimeline.releaseResources();
 
     checkPitchShifter();

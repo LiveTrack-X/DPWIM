@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(DPWIM VERSION 0.3.2 LANGUAGES CXX)
+project(DPWIM VERSION 0.3.3 LANGUAGES CXX)
 
 if(NOT WIN32)
     message(FATAL_ERROR "DPWIM currently supports Windows only.")
@@ -97,6 +97,36 @@ target_sources(DPWIM PRIVATE
 )
 
 juce_generate_juce_header(DPWIM)
+
+if(TARGET DPWIM_rc_lib)
+    get_target_property(
+        DPWIM_GENERATED_SOURCES_DIRECTORY
+        DPWIM JUCE_GENERATED_SOURCES_DIRECTORY
+    )
+    get_target_property(DPWIM_INFO_FILE DPWIM JUCE_INFO_FILE)
+    set(
+        DPWIM_VERSION_RESOURCE
+        "${DPWIM_GENERATED_SOURCES_DIRECTORY}/DPWIM_resources.rc"
+    )
+    set(
+        DPWIM_VERSION_RESOURCE_STAMP
+        "${DPWIM_GENERATED_SOURCES_DIRECTORY}/DPWIM_resources.version.stamp"
+    )
+    add_custom_command(
+        OUTPUT "${DPWIM_VERSION_RESOURCE_STAMP}"
+        COMMAND juce::juceaide rcfile
+                "${DPWIM_INFO_FILE}" "${DPWIM_VERSION_RESOURCE}"
+        COMMAND "${CMAKE_COMMAND}" -E touch
+                "${DPWIM_VERSION_RESOURCE_STAMP}"
+        DEPENDS "${DPWIM_INFO_FILE}" juce::juceaide
+        VERBATIM
+    )
+    add_custom_target(
+        dpwim-version-resource
+        DEPENDS "${DPWIM_VERSION_RESOURCE_STAMP}"
+    )
+    add_dependencies(DPWIM_rc_lib dpwim-version-resource)
+endif()
 
 target_compile_definitions(DPWIM PUBLIC
     JUCE_WEB_BROWSER=0

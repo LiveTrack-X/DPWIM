@@ -10,6 +10,7 @@ namespace {
 
 constexpr float kMaximumBaseLatencyMs = 250.0f;
 constexpr float kMaximumNegativeOffsetMs = 200.0f;
+constexpr double kMinimumCaptureJitterLatencyMs = 20.0;
 constexpr int kMinimumHostBlockSafetyFrames = 512;
 constexpr int kRealtimeBlockReserveFrames = 8192;
 
@@ -641,9 +642,13 @@ DPWIMAudioProcessor::currentTimeline(
         static_cast<double>(
             std::max(blockSafetyFrames, 1))
         * 1000.0 / std::max(1.0, rate);
+    const auto enabledSourceSafetyMs =
+        std::max(
+            blockSafetyMs,
+            kMinimumCaptureJitterLatencyMs);
     return dpwim::calculateSyncTimeline(
         targetLatencyParam_->load(std::memory_order_relaxed),
-        sources, blockSafetyMs);
+        sources, enabledSourceSafetyMs);
 }
 
 DPWIMAudioProcessor::LatencySnapshot

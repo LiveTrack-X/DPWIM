@@ -43,37 +43,35 @@ Windows x64 VST2/VST3 플러그인입니다.
 가상 오디오 장치 없이 사용할 수 있습니다. 현재 GPL-3.0 기반의 무료 공개
 프리뷰입니다.
 
-**[Download DPWIM v0.3.2 / DPWIM v0.3.2 다운로드](https://github.com/LiveTrack-X/DPWIM/releases/tag/v0.3.2)**
+**[Download DPWIM v0.3.3 / DPWIM v0.3.3 다운로드](https://github.com/LiveTrack-X/DPWIM/releases/tag/v0.3.3)**
 
-Status: `v0.3.2` public preview. It is locally software-verified, but unsigned,
-not DAW-matrix-tested, and not claimed production-ready.
+Status: `v0.3.3` is the latest published public preview. It is locally
+software-verified, but unsigned, not broadly DAW-matrix-tested, and not claimed
+production-ready.
 
-상태: `v0.3.2` 공개 프리뷰입니다. 로컬 소프트웨어 검증은 통과했지만
-코드 서명과 광범위한 DAW 호환성 검증은 아직 완료되지 않았습니다.
+상태: 공개된 최신 프리뷰는 `v0.3.3`입니다. 로컬 소프트웨어 검증은
+통과했지만 코드 서명과 광범위한 DAW 호환성 검증은 아직 완료되지 않았으며,
+프로덕션 준비 완료를 주장하지 않습니다.
 
-### v0.3.2 maintenance update / v0.3.2 유지보수 업데이트
+### v0.3.3 stability update / v0.3.3 안정성 업데이트
 
-- Active-source host-block safety now includes the FIFO drift ratio and
-  interpolation requirement, so a 512-frame callback uses a 514-sample floor.
-- A larger-than-prepared callback publishes its required floor without
-  changing PDC from the audio thread. Captured sources stay muted until the
-  host is notified and the next callback adopts the floor.
-- FIFO underrun, overflow, explicit discard, and WASAPI discontinuity now
-  invalidate stale history, re-prime, and fade captured audio back in.
-- Discard no longer rewinds the producer counter while capture is writing.
-- Update-check publication is serialized with shutdown.
+- Active capture sources reserve at least 20 ms on the common timeline.
+  At 48 kHz the ordinary active-source minimum is 960 samples.
+- This reserve prevents a late Windows shared-mode capture packet from
+  draining the FIFO and muting a complete host block.
+- With no enabled capture source, the minimum remains 10 ms / 480 samples.
+- A deterministic regression withholds capture delivery across three
+  consecutive 256-frame host callbacks.
 
-- 활성 소스의 호스트 블록 안전값에 FIFO drift 비율과 보간 여유를 포함합니다
-  (512프레임 콜백은 514샘플 floor).
-- 준비 범위보다 큰 콜백은 오디오 스레드에서 PDC를 바꾸지 않고 필요한
-  floor만 게시합니다. 호스트 통지 후 다음 콜백이 floor를 채택할 때까지
-  캡처 소스는 무음으로 유지됩니다.
-- FIFO underrun·overflow·discard·WASAPI discontinuity 뒤에는 부분/오래된
-  블록을 섞지 않고 stale history를 무효화한 뒤 재프라임·페이드인합니다.
-- capture 쓰기 중 discard가 producer counter를 되감지 않습니다.
-- 업데이트 확인 결과 게시와 종료를 직렬화했습니다.
+- 활성 캡처 소스가 있으면 공통 타임라인에 최소 20 ms를 확보합니다.
+  48 kHz에서는 일반적인 활성 소스 최소값이 960 samples입니다.
+- Windows 공유 모드 캡처 패킷이 잠깐 늦어져도 FIFO가 바닥나 전체 호스트
+  블록이 무음 처리되지 않도록 여유를 둡니다.
+- 활성 캡처 소스가 없으면 최소값은 기존 10 ms / 480 samples 그대로입니다.
+- 캡처 전달을 늦추고 256-frame 호스트 콜백 3회를 연속 처리하는 회귀
+  테스트를 추가했습니다.
 
-[Full v0.3.2 release notes / 전체 v0.3.2 릴리즈 노트](docs/releases/v0.3.2.md)
+[Full v0.3.3 release notes / 전체 v0.3.3 릴리즈 노트](docs/releases/v0.3.3.md)
 
 The source checkout may contain unreleased work described under `Unreleased`
 in the changelog. The download link above remains the latest published build.
@@ -96,8 +94,8 @@ normal 64-bit VST2/VST3 effect.
 ## Current controls
 
 - Base Latency: the user-selected 10-250 ms floor for stable capture and input
-  alignment. While any capture source is active, DPWIM automatically raises
-  the effective floor when the host block plus FIFO drift/interpolation safety
+  alignment. While any capture source is active, DPWIM automatically uses at
+  least 20 ms and raises it further when host-block or source processing safety
   needs more time.
 - Dry Input ON/OFF: mute the upstream/microphone path without stopping app capture.
 - Dry Gain: independent level for the upstream/microphone path.
@@ -150,7 +148,7 @@ display.
 active-source host-block safety above Base, negative-offset rebasing, and pitch
 processing latency; positive offsets delay only their source. At 48 kHz a new
 instance with no active source remains 480 samples. With an active source,
-512-frame host callbacks require at least 514 samples.
+the ordinary minimum is 960 samples / 20 ms.
 
 OUT은 DPWIM이 추가하고 호스트에 보고하는 지연입니다. DirectPipe나 DAW가
 표시하는 전체 지연에는 장치 버퍼, 다른 플러그인, 호스트 처리 시간이 더해질

@@ -4,6 +4,20 @@ All notable changes to DPWIM are documented here.
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-07-31
+
+### Fixed
+
+- Active Windows-capture sources now reserve at least 20 ms on the shared
+  timeline. At 48 kHz this raises the ordinary active-source floor from
+  514 to 960 samples, leaving enough headroom for a late shared-mode capture
+  packet without muting a host block.
+- The 10 ms / 480-sample minimum remains unchanged when no capture source is
+  enabled. Dry Input, captured sources, footer OUT/SYNC values, and host PDC
+  continue to use one aligned effective timeline.
+- Added a deterministic late-packet regression that withholds capture delivery
+  across three consecutive 256-frame host callbacks.
+
 ## [0.3.2] - 2026-07-31
 
 ### Fixed
