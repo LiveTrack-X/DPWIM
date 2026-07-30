@@ -43,13 +43,29 @@ Windows x64 VST2/VST3 플러그인입니다.
 가상 오디오 장치 없이 사용할 수 있습니다. 현재 GPL-3.0 기반의 무료 공개
 프리뷰입니다.
 
-**[Download DPWIM v0.3.0 / DPWIM v0.3.0 다운로드](https://github.com/LiveTrack-X/DPWIM/releases/tag/v0.3.0)**
+**[Download DPWIM v0.3.1 / DPWIM v0.3.1 다운로드](https://github.com/LiveTrack-X/DPWIM/releases/tag/v0.3.1)**
 
-Status: `v0.3.0` public preview. It is locally software-verified, but unsigned,
+Status: `v0.3.1` public preview. It is locally software-verified, but unsigned,
 not DAW-matrix-tested, and not claimed production-ready.
 
-상태: `v0.3.0` 공개 프리뷰입니다. 로컬 소프트웨어 검증은 통과했지만
+상태: `v0.3.1` 공개 프리뷰입니다. 로컬 소프트웨어 검증은 통과했지만
 코드 서명과 광범위한 DAW 호환성 검증은 아직 완료되지 않았습니다.
+
+### v0.3.1 maintenance update / v0.3.1 유지보수 업데이트
+
+- Smoother 60 Hz Dry/source/MAIN OUT meters.
+- Separate internal and host bypass paths with consistent audio/PDC timing.
+- Immediate latency reporting for Base, Offset, pitch, and source-state
+  changes.
+- Stale-buffer, low-sample-rate delay-capacity, and source FIFO race fixes.
+
+- Dry/소스/MAIN OUT 미터를 60 Hz로 부드럽게 갱신합니다.
+- 내부 바이패스와 호스트 바이패스를 분리하고 실제 오디오와 PDC 타이밍을
+  일치시켰습니다.
+- Base, Offset, 피치, 소스 상태 변경을 호스트 레이턴시에 즉시 반영합니다.
+- 오래된 버퍼 재생, 저샘플레이트 지연 용량, 소스 FIFO 경합을 수정했습니다.
+
+[Full v0.3.1 release notes / 전체 v0.3.1 릴리즈 노트](docs/releases/v0.3.1.md)
 
 The source checkout may contain unreleased work described under `Unreleased`
 in the changelog. The download link above remains the latest published build.
