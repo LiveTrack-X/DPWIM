@@ -10,6 +10,8 @@ namespace {
 
 constexpr float kMaximumBaseLatencyMs = 250.0f;
 constexpr float kMaximumNegativeOffsetMs = 200.0f;
+constexpr int kMinimumHostBlockSafetyFrames = 512;
+constexpr int kRealtimeBlockReserveFrames = 8192;
 
 float dbToGain(float db)
 {
@@ -49,7 +51,7 @@ DPWIMAudioProcessor::DPWIMAudioProcessor()
         apvts_.addParameterListener(transposeParameter(index), this);
         apvts_.addParameterListener(finePitchParameter(index), this);
     }
-    startTimerHz(10);
+    startTimerHz(60);
 }
 
 DPWIMAudioProcessor::~DPWIMAudioProcessor()
@@ -150,13 +152,46 @@ void DPWIMAudioProcessor::prepareToPlay(double sampleRate,
 {
     stopAllSlots();
     sampleRate_.store(sampleRate, std::memory_order_release);
-    const auto maximumTimelineDelaySamples =
+    const auto preparedBlockFrames = std::max(samplesPerBlock, 1);
+    const auto initialSafetyBlockFrames =
+        std::max(
+            preparedBlockFrames, kMinimumHostBlockSafetyFrames);
+    const auto realtimeBlockCapacity =
+        std::max(preparedBlockFrames, kRealtimeBlockReserveFrames);
+    const auto initialSafetyFrames =
+        static_cast<int>(
+            dpwim::AudioRingBuffer::safeTargetFillFrames(
+                static_cast<std::uint32_t>(
+                    initialSafetyBlockFrames)));
+    blockSafetyFrames_.store(
+        initialSafetyFrames,
+        std::memory_order_release);
+    observedBlockSafetyFrames_.store(
+        initialSafetyFrames,
+        std::memory_order_release);
+    pendingCommittedBlockSafetyFrames_.store(
+        0, std::memory_order_release);
+    realtimeBlockCapacityFrames_.store(
+        realtimeBlockCapacity, std::memory_order_release);
+    const auto safeSampleRate = std::max(1.0, sampleRate);
+    const auto maximumBaseDelaySamples =
         static_cast<int>(std::ceil(
-            sampleRate
-            * static_cast<double>(
-                kMaximumBaseLatencyMs
-                + kMaximumNegativeOffsetMs)
-            / 1000.0))
+            safeSampleRate
+            * static_cast<double>(kMaximumBaseLatencyMs)
+            / 1000.0));
+    const auto maximumNegativeOffsetSamples =
+        static_cast<int>(std::ceil(
+            safeSampleRate
+            * static_cast<double>(kMaximumNegativeOffsetMs)
+            / 1000.0));
+    const auto maximumTimelineDelaySamples =
+        std::max(
+            maximumBaseDelaySamples,
+            static_cast<int>(
+                dpwim::AudioRingBuffer::safeTargetFillFrames(
+                    static_cast<std::uint32_t>(
+                        realtimeBlockCapacity))))
+        + maximumNegativeOffsetSamples
         + dpwim::PhaseVocoderPitchShifter::kLatencySamples;
     dryDelay_.prepare(
         getTotalNumOutputChannels(), maximumTimelineDelaySamples);
@@ -165,7 +200,7 @@ void DPWIMAudioProcessor::prepareToPlay(double sampleRate,
             static_cast<std::size_t>(std::ceil(sampleRate * 5.0)), 2);
         slot->pitchShifter.prepare(sampleRate);
         slot->scratch.setSize(
-            2, std::max(samplesPerBlock, 8192),
+            2, realtimeBlockCapacity,
             false, true, false);
         slot->lastPitchActive = false;
         slot->lastRequestedFillFrames = -1.0;
@@ -191,6 +226,8 @@ void DPWIMAudioProcessor::releaseResources()
     dryDelay_.reset();
     audioPathMode_ = AudioPathMode::Uninitialised;
     lastAudioBlockTick_ = 0;
+    pendingCommittedBlockSafetyFrames_.store(
+        0, std::memory_order_release);
     for (auto& meter : dryMeterPeaks_)
         meter.store(0.0f, std::memory_order_relaxed);
     for (auto& meter : mainOutputMeterPeaks_)
@@ -220,6 +257,11 @@ void DPWIMAudioProcessor::processAudioBlock(
     const int frames = buffer.getNumSamples();
     if (channels <= 0 || frames <= 0)
         return;
+    applyPendingBlockSafety();
+    const bool sourceBlockSafetyReady =
+        observeHostBlockSize(frames);
+    const auto committedBlockSafetyFrames =
+        blockSafetyFrames_.load(std::memory_order_acquire);
 
     const double rate = sampleRate_.load(std::memory_order_acquire);
     const bool internalBypassed =
@@ -240,7 +282,8 @@ void DPWIMAudioProcessor::processAudioBlock(
             / 20.0f);
     if (mode != AudioPathMode::Normal) {
         if (mode == AudioPathMode::HostBypass) {
-            const auto timeline = currentTimeline();
+            const auto timeline =
+                currentTimeline(committedBlockSafetyFrames);
             const int targetFrames = dpwim::latencySamples(
                 timeline.effectiveLatencyMs, rate);
             std::array<float*, 2> outputs{
@@ -270,7 +313,8 @@ void DPWIMAudioProcessor::processAudioBlock(
 
     const bool dryEnabled =
         dryEnabledParam_->load(std::memory_order_relaxed) >= 0.5f;
-    const auto timeline = currentTimeline();
+    const auto timeline =
+        currentTimeline(committedBlockSafetyFrames);
     const int targetFrames = dpwim::latencySamples(
         timeline.effectiveLatencyMs, rate);
 
@@ -301,22 +345,48 @@ void DPWIMAudioProcessor::processAudioBlock(
                 updateMeterPeak(meter, 0.0f, release);
             continue;
         }
+        if (!sourceBlockSafetyReady) {
+            slot.ring.reprime();
+            slot.pitchShifter.reset();
+            slot.lastRequestedFillFrames = -1.0;
+            slot.fillFrames.store(0.0, std::memory_order_relaxed);
+            slot.ratio.store(1.0, std::memory_order_relaxed);
+            for (auto& meter : slot.meterPeaks)
+                updateMeterPeak(meter, 0.0f, release);
+            continue;
+        }
 
         const float gainDb =
             sourceGainParams_[static_cast<std::size_t>(index)]
                 ->load(std::memory_order_relaxed);
+        const auto semitones =
+            sourceTransposeParams_[static_cast<std::size_t>(index)]
+                ->load(std::memory_order_relaxed)
+            + sourceFinePitchParams_[static_cast<std::size_t>(index)]
+                    ->load(std::memory_order_relaxed)
+                / 100.0f;
+        const bool pitchActive = std::abs(semitones) >= 0.005f;
         const double requestedFill =
             rate
             * timeline.sourceLatencyMs[static_cast<std::size_t>(index)]
             / 1000.0;
+        bool timelineChanged = false;
         if (slot.lastRequestedFillFrames >= 0.0
             && std::abs(
                    requestedFill - slot.lastRequestedFillFrames)
-                > 0.5)
+                > 0.5) {
             slot.ring.reprime();
+            timelineChanged = true;
+        }
         slot.lastRequestedFillFrames = requestedFill;
         auto& scratch = slot.scratch;
         if (scratch.getNumSamples() < frames) {
+            slot.ring.reprime();
+            slot.pitchShifter.reset();
+            slot.lastRequestedFillFrames = -1.0;
+            slot.lastPitchActive = pitchActive;
+            slot.fillFrames.store(0.0, std::memory_order_relaxed);
+            slot.ratio.store(1.0, std::memory_order_relaxed);
             for (auto& meter : slot.meterPeaks)
                 updateMeterPeak(meter, 0.0f, release);
             continue;
@@ -330,16 +400,20 @@ void DPWIMAudioProcessor::processAudioBlock(
             sourceOutputs.data(), channels,
             static_cast<std::uint32_t>(frames),
             1.0f, requestedFill);
-        const auto semitones =
-            sourceTransposeParams_[static_cast<std::size_t>(index)]
-                ->load(std::memory_order_relaxed)
-            + sourceFinePitchParams_[static_cast<std::size_t>(index)]
-                    ->load(std::memory_order_relaxed)
-                / 100.0f;
-        const bool pitchActive = std::abs(semitones) >= 0.005f;
-        if (pitchActive != slot.lastPitchActive) {
+        if (timelineChanged || result.discontinuity
+            || pitchActive != slot.lastPitchActive) {
             slot.pitchShifter.reset();
-            slot.lastPitchActive = pitchActive;
+        }
+        slot.lastPitchActive = pitchActive;
+        slot.fillFrames.store(
+            result.fillFrames, std::memory_order_relaxed);
+        slot.ratio.store(result.ratio, std::memory_order_relaxed);
+        if (result.renderedFrames
+            != static_cast<std::uint32_t>(frames)) {
+            scratch.clear(0, frames);
+            for (auto& meter : slot.meterPeaks)
+                updateMeterPeak(meter, 0.0f, release);
+            continue;
         }
         if (pitchActive) {
             const auto ratio =
@@ -361,8 +435,6 @@ void DPWIMAudioProcessor::processAudioBlock(
             buffer.addFrom(
                 channel, 0, scratch, channel, 0,
                 frames, sourceGain);
-        slot.fillFrames.store(result.fillFrames, std::memory_order_relaxed);
-        slot.ratio.store(result.ratio, std::memory_order_relaxed);
     }
     for (int meterChannel = 0; meterChannel < 2; ++meterChannel) {
         const auto channel = std::min(meterChannel, channels - 1);
@@ -451,22 +523,88 @@ void DPWIMAudioProcessor::handleAsyncUpdate()
 
 void DPWIMAudioProcessor::updateLatencyReport()
 {
+    const auto observedSafetyFrames =
+        observedBlockSafetyFrames_.load(std::memory_order_acquire);
+    const auto committedSafetyFrames =
+        blockSafetyFrames_.load(std::memory_order_acquire);
+    const auto candidateSafetyFrames =
+        std::max(observedSafetyFrames, committedSafetyFrames);
     const auto rate = sampleRate_.load(std::memory_order_acquire);
     const bool bypassed =
         bypassParam_->load(std::memory_order_relaxed) >= 0.5f;
     const auto latency = bypassed
         ? 0
         : dpwim::latencySamples(
-              currentTimeline().effectiveLatencyMs, rate);
-    if (latency
-        != lastReportedLatency_.exchange(
-            latency, std::memory_order_acq_rel)) {
-        setLatencySamples(latency);
+              currentTimeline(candidateSafetyFrames)
+                  .effectiveLatencyMs,
+              rate);
+    const bool hostNotificationRequired =
+        latency
+        != lastReportedLatency_.load(std::memory_order_acquire);
+    const bool safetyPublicationRequired =
+        candidateSafetyFrames > committedSafetyFrames;
+    notifyHostThenPublishAudioSafety(
+        hostNotificationRequired,
+        [&] {
+            setLatencySamples(latency);
+            lastReportedLatency_.store(
+                latency, std::memory_order_release);
+        },
+        safetyPublicationRequired,
+        [&] {
+            auto pendingSafetyFrames =
+                pendingCommittedBlockSafetyFrames_.load(
+                    std::memory_order_relaxed);
+            while (pendingSafetyFrames < candidateSafetyFrames
+                   && !pendingCommittedBlockSafetyFrames_
+                           .compare_exchange_weak(
+                               pendingSafetyFrames,
+                               candidateSafetyFrames,
+                               std::memory_order_release,
+                               std::memory_order_relaxed)) {
+            }
+        });
+}
+
+bool DPWIMAudioProcessor::observeHostBlockSize(
+    int frames) noexcept
+{
+    const auto capacity =
+        realtimeBlockCapacityFrames_.load(std::memory_order_acquire);
+    const auto supportedFrames = std::min(frames, capacity);
+    const auto requiredSafetyFrames =
+        static_cast<int>(
+            dpwim::AudioRingBuffer::safeTargetFillFrames(
+                static_cast<std::uint32_t>(
+                    supportedFrames)));
+    auto previous =
+        observedBlockSafetyFrames_.load(std::memory_order_relaxed);
+    while (previous < requiredSafetyFrames
+           && !observedBlockSafetyFrames_.compare_exchange_weak(
+               previous, requiredSafetyFrames,
+               std::memory_order_release,
+               std::memory_order_relaxed)) {
+    }
+    return frames <= capacity
+        && requiredSafetyFrames
+            <= blockSafetyFrames_.load(std::memory_order_acquire);
+}
+
+void DPWIMAudioProcessor::applyPendingBlockSafety() noexcept
+{
+    const auto pendingSafetyFrames =
+        pendingCommittedBlockSafetyFrames_.exchange(
+            0, std::memory_order_acq_rel);
+    if (pendingSafetyFrames
+        > blockSafetyFrames_.load(std::memory_order_relaxed)) {
+        blockSafetyFrames_.store(
+            pendingSafetyFrames, std::memory_order_release);
     }
 }
 
 dpwim::SyncTimelinePlan
-DPWIMAudioProcessor::currentTimeline() const noexcept
+DPWIMAudioProcessor::currentTimeline(
+    int blockSafetyFrames) const noexcept
 {
     std::array<dpwim::SyncSourceTiming, dpwim::kSyncSourceCount>
         sources{};
@@ -497,15 +635,26 @@ DPWIMAudioProcessor::currentTimeline() const noexcept
                 * 1000.0 / std::max(1.0, rate);
         }
     }
+    const auto rate =
+        sampleRate_.load(std::memory_order_acquire);
+    const auto blockSafetyMs =
+        static_cast<double>(
+            std::max(blockSafetyFrames, 1))
+        * 1000.0 / std::max(1.0, rate);
     return dpwim::calculateSyncTimeline(
         targetLatencyParam_->load(std::memory_order_relaxed),
-        sources);
+        sources, blockSafetyMs);
 }
 
 DPWIMAudioProcessor::LatencySnapshot
 DPWIMAudioProcessor::latencySnapshot() const noexcept
 {
-    const auto timeline = currentTimeline();
+    const auto visibleSafetyFrames =
+        std::max(
+            blockSafetyFrames_.load(std::memory_order_acquire),
+            pendingCommittedBlockSafetyFrames_.load(
+                std::memory_order_acquire));
+    const auto timeline = currentTimeline(visibleSafetyFrames);
     const auto rate = sampleRate_.load(std::memory_order_acquire);
     const bool bypassed =
         bypassParam_->load(std::memory_order_relaxed) >= 0.5f;
@@ -628,7 +777,10 @@ void DPWIMAudioProcessor::startSlot(int slotIndex)
     slot.capture.start(
         pid, mode == SourceMode::Application, rate,
         [slotPointer](const float* data, std::uint32_t frames,
-                      std::uint32_t channels, bool silent) {
+                      std::uint32_t channels, bool silent,
+                      bool discontinuity) {
+            if (discontinuity)
+                slotPointer->ring.discard();
             slotPointer->ring.write(data, frames, channels, silent);
         });
 }

@@ -4,6 +4,26 @@ All notable changes to DPWIM are documented here.
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-07-31
+
+### Fixed
+
+- Active captured sources now reserve a resampler-aware host-block safety
+  floor. A 512-frame callback requires 514 samples and the 8192-frame
+  real-time reserve requires 8209, keeping FIFO reads and reported PDC aligned.
+- Larger-than-prepared callbacks publish only an atomic observation from the
+  audio thread. The 60 Hz message timer notifies the new host PDC before the
+  next audio callback adopts the floor; until then, a captured source block is
+  fully muted and re-primed even when the FIFO already holds a complete block.
+- FIFO underrun, overflow, explicit discard, and WASAPI data discontinuity now
+  invalidate stale history, reset sync/pitch state as needed, and fade captured
+  audio back in. Generation changes are checked throughout rendering so one
+  source block cannot mix samples from both sides of a discontinuity.
+- Capture discard no longer rewinds the producer frame counter, avoiding a
+  producer/consumer race while an active capture callback is writing.
+- Update-check request publication and shutdown are now serialized so a worker
+  cannot publish into a stopped request.
+
 ## [0.3.1] - 2026-07-29
 
 ### Fixed

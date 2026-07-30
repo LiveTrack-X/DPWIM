@@ -40,6 +40,7 @@ private:
     void publish(Snapshot snapshot);
 
     mutable std::mutex snapshotMutex_;
+    std::mutex requestMutex_;
     Snapshot snapshot_;
     std::thread worker_;
     std::atomic<bool> stopRequested_{false};

@@ -104,6 +104,8 @@ public:
     SourceSnapshot sourceSnapshot(int slot) const;
 
 private:
+    friend struct DPWIMProcessorTestAccess;
+
     enum class AudioPathMode {
         Uninitialised,
         Normal,
@@ -145,13 +147,31 @@ private:
     void handleAsyncUpdate() override;
     void requestLatencyReportUpdate();
     void updateLatencyReport();
-    dpwim::SyncTimelinePlan currentTimeline() const noexcept;
+    dpwim::SyncTimelinePlan currentTimeline(
+        int blockSafetyFrames) const noexcept;
+    bool observeHostBlockSize(int frames) noexcept;
+    void applyPendingBlockSafety() noexcept;
     void processAudioBlock(
         juce::AudioBuffer<float>&, bool forceBypass);
     void prepareAudioPath(
         AudioPathMode mode, int frames, double sampleRate) noexcept;
     static void updateMeterPeak(
         std::atomic<float>& meter, float peak, float release) noexcept;
+
+    template <typename HostNotifier, typename SafetyPublisher>
+    static void notifyHostThenPublishAudioSafety(
+        bool hostNotificationRequired,
+        HostNotifier&& notifyHost,
+        bool safetyPublicationRequired,
+        SafetyPublisher&& publishSafety)
+    {
+        // The audio path must never adopt a larger delay before the host has
+        // been told to update its plug-in delay compensation.
+        if (hostNotificationRequired)
+            notifyHost();
+        if (safetyPublicationRequired)
+            publishSafety();
+    }
 
     juce::AudioProcessorValueTreeState apvts_;
     std::atomic<float>* targetLatencyParam_ = nullptr;
@@ -169,6 +189,10 @@ private:
     std::atomic<bool> prepared_{false};
     std::atomic<double> sampleRate_{48000.0};
     std::atomic<int> lastReportedLatency_{-1};
+    std::atomic<int> blockSafetyFrames_{1};
+    std::atomic<int> observedBlockSafetyFrames_{1};
+    std::atomic<int> pendingCommittedBlockSafetyFrames_{0};
+    std::atomic<int> realtimeBlockCapacityFrames_{1};
     AudioPathMode audioPathMode_ = AudioPathMode::Uninitialised;
     juce::int64 lastAudioBlockTick_ = 0;
 

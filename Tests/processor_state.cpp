@@ -6,7 +6,52 @@
 
 #include <cmath>
 #include <iostream>
+#include <thread>
 #include <vector>
+
+struct DPWIMProcessorTestAccess {
+    static void writeCapturedAudio(
+        DPWIMAudioProcessor& processor, int slot,
+        const std::vector<float>& interleaved,
+        std::uint32_t frames, std::uint32_t channels)
+    {
+        processor.slots_[static_cast<std::size_t>(slot)]
+            ->ring.write(
+                interleaved.data(), frames, channels, false);
+    }
+
+    static int committedBlockSafetyFrames(
+        const DPWIMAudioProcessor& processor)
+    {
+        return processor.blockSafetyFrames_.load(
+            std::memory_order_acquire);
+    }
+
+    static int pendingBlockSafetyFrames(
+        const DPWIMAudioProcessor& processor)
+    {
+        return processor.pendingCommittedBlockSafetyFrames_.load(
+            std::memory_order_acquire);
+    }
+
+    static bool hostNotificationPrecedesSafetyPublication()
+    {
+        int sequence = 0;
+        int hostNotificationSequence = 0;
+        int safetyPublicationSequence = 0;
+        DPWIMAudioProcessor::notifyHostThenPublishAudioSafety(
+            true,
+            [&] {
+                hostNotificationSequence = ++sequence;
+            },
+            true,
+            [&] {
+                safetyPublicationSequence = ++sequence;
+            });
+        return hostNotificationSequence == 1
+            && safetyPublicationSequence == 2;
+    }
+};
 
 namespace {
 
@@ -49,6 +94,7 @@ bool waitForLatency(DPWIMAudioProcessor& processor,
     const auto deadline =
         juce::Time::getMillisecondCounterHiRes() + timeoutMs;
     do {
+        juce::Timer::callPendingTimersSynchronously();
         if (processor.getLatencySamples() == expectedSamples)
             return true;
         juce::Thread::sleep(1);
@@ -200,8 +246,23 @@ int main()
         0, {});
     setPlainValue(timingProcessor, "sourceOffset0", -25.0f);
     timingProcessor.prepareToPlay(48000.0, 512);
-    check(timingProcessor.getLatencySamples() == 1680,
+    constexpr int rebasedBlockSafeLatency = 1714;
+    check(timingProcessor.getLatencySamples() == rebasedBlockSafeLatency,
           "processor reports effective rebased latency to the host");
+    const auto preparedRebasedLatency =
+        timingProcessor.latencySnapshot();
+    check(std::abs(preparedRebasedLatency.targetMs - 10.0) < 0.01
+              && std::abs(
+                     preparedRebasedLatency.syncAdditionMs
+                     - 25.7083333333)
+                  < 0.01
+              && std::abs(
+                     preparedRebasedLatency.effectiveMs
+                     - 35.7083333333)
+                  < 0.01
+              && preparedRebasedLatency.samples
+                  == rebasedBlockSafeLatency,
+          "UI latency snapshot uses the host and audio-path timeline");
     juce::AudioBuffer<float> audio(2, 512);
     juce::MidiBuffer midi;
     int impulseFrame = -1;
@@ -218,7 +279,7 @@ int main()
                 impulseFrame = block * 512 + frame;
         }
     }
-    check(impulseFrame == 1680,
+    check(impulseFrame == rebasedBlockSafeLatency,
           "dry path follows the effective rebased latency");
     const auto delayedLevels = timingProcessor.levelSnapshot();
     check(delayedLevels.dry[0] > 0.45f
@@ -228,6 +289,146 @@ int main()
               && delayedLevels.mainOutput[1] > 0.45f,
           "main output snapshot follows the final normal mix");
     timingProcessor.releaseResources();
+
+    DPWIMAudioProcessor blockSafeProcessor;
+    blockSafeProcessor.setSource(
+        0, DPWIMAudioProcessor::SourceMode::Application,
+        0, {});
+    blockSafeProcessor.prepareToPlay(48000.0, 512);
+    constexpr int blockSafeLatency = 514;
+    check(
+        blockSafeProcessor.getLatencySamples() == blockSafeLatency,
+        "active capture timeline includes PLL and interpolation safety");
+    int blockSafeImpulseFrame = -1;
+    for (int block = 0; block < 3; ++block) {
+        audio.clear();
+        if (block == 0) {
+            audio.setSample(0, 0, 0.5f);
+            audio.setSample(1, 0, 0.5f);
+        }
+        blockSafeProcessor.processBlock(audio, midi);
+        for (int frame = 0; frame < audio.getNumSamples(); ++frame)
+            if (blockSafeImpulseFrame < 0
+                && std::abs(audio.getSample(0, frame)) > 0.4f)
+                blockSafeImpulseFrame =
+                    block * audio.getNumSamples() + frame;
+    }
+    check(
+        blockSafeImpulseFrame == blockSafeLatency,
+        "block-safe Dry delay matches the latency reported to the host");
+    blockSafeProcessor.releaseResources();
+
+    DPWIMAudioProcessor observedBlockProcessor;
+    observedBlockProcessor.setSource(
+        0, DPWIMAudioProcessor::SourceMode::Application,
+        0, {});
+    setPlainValue(
+        observedBlockProcessor, "dryEnabled", 0.0f);
+    observedBlockProcessor.prepareToPlay(48000.0, 256);
+    check(observedBlockProcessor.getLatencySamples() == blockSafeLatency,
+          "active capture preflights a safe 512-sample host callback");
+    std::vector<float> capturedAudio(8192, 1.0f);
+    DPWIMProcessorTestAccess::writeCapturedAudio(
+        observedBlockProcessor, 0, capturedAudio, 4096, 2);
+    juce::AudioBuffer<float> primedSourceAudio(2, 256);
+    primedSourceAudio.clear();
+    observedBlockProcessor.processBlock(primedSourceAudio, midi);
+    check(
+        primedSourceAudio.getMagnitude(
+            0, 0, primedSourceAudio.getNumSamples()) > 0.9f,
+        "the source FIFO is primed before the oversized callback");
+    DPWIMProcessorTestAccess::writeCapturedAudio(
+        observedBlockProcessor, 0, capturedAudio, 4096, 2);
+    juce::AudioBuffer<float> largerAudio(2, 1024);
+    largerAudio.clear();
+    std::thread largerCallback([&] {
+        observedBlockProcessor.processBlock(largerAudio, midi);
+    });
+    largerCallback.join();
+    check(largerAudio.getMagnitude(
+              0, 0, largerAudio.getNumSamples()) < 1.0e-6f,
+          "the first oversized callback mutes a fully primed source");
+    check(observedBlockProcessor.getLatencySamples() == blockSafeLatency,
+          "the audio thread only publishes a pending block observation");
+    constexpr int observedBlockLatency = 1027;
+    check(waitForLatency(
+              observedBlockProcessor, observedBlockLatency, 50),
+           "the message timer commits the observed block and host latency");
+    check(
+        DPWIMProcessorTestAccess::committedBlockSafetyFrames(
+            observedBlockProcessor)
+                == blockSafeLatency
+            && DPWIMProcessorTestAccess::pendingBlockSafetyFrames(
+                   observedBlockProcessor)
+                == observedBlockLatency,
+        "host PDC is notified before the audio-thread safety commit");
+    check(
+        DPWIMProcessorTestAccess::
+            hostNotificationPrecedesSafetyPublication(),
+        "the shared commit helper orders host PDC before audio safety");
+    setPlainValue(
+        observedBlockProcessor, "dryEnabled", 1.0f);
+    largerAudio.clear();
+    observedBlockProcessor.processBlock(largerAudio, midi);
+    check(
+        DPWIMProcessorTestAccess::committedBlockSafetyFrames(
+            observedBlockProcessor)
+                == observedBlockLatency
+            && DPWIMProcessorTestAccess::pendingBlockSafetyFrames(
+                   observedBlockProcessor)
+                == 0,
+        "the next callback atomically adopts the host-notified safety");
+    largerAudio.clear();
+    largerAudio.setSample(0, 0, 0.5f);
+    largerAudio.setSample(1, 0, 0.5f);
+    observedBlockProcessor.processBlock(largerAudio, midi);
+    check(largerAudio.getMagnitude(
+              0, 0, largerAudio.getNumSamples()) < 1.0e-6f,
+          "committed oversized-block Dry delay spans the next callback");
+    largerAudio.clear();
+    observedBlockProcessor.processBlock(largerAudio, midi);
+    check(std::abs(largerAudio.getSample(0, 3) - 0.5f) < 0.001f,
+          "committed Dry delay matches the 1027-sample host latency");
+    observedBlockProcessor.releaseResources();
+
+    DPWIMAudioProcessor oversizedBlockProcessor;
+    oversizedBlockProcessor.setSource(
+        0, DPWIMAudioProcessor::SourceMode::Application,
+        0, {});
+    oversizedBlockProcessor.prepareToPlay(48000.0, 256);
+    juce::AudioBuffer<float> oversizedAudio(2, 16384);
+    oversizedAudio.clear();
+    oversizedAudio.setSample(0, 0, 0.5f);
+    oversizedAudio.setSample(1, 0, 0.5f);
+    oversizedBlockProcessor.processBlock(oversizedAudio, midi);
+    check(
+        oversizedBlockProcessor.getLatencySamples()
+            == blockSafeLatency,
+        "callbacks beyond reserve leave current PDC stable until commit");
+    constexpr int boundedRealtimeLatency = 8209;
+    check(waitForLatency(
+              oversizedBlockProcessor,
+              boundedRealtimeLatency, 50),
+          "reserve-bounded latency commits on the message timer");
+    oversizedAudio.clear();
+    oversizedBlockProcessor.processBlock(oversizedAudio, midi);
+    oversizedAudio.clear();
+    oversizedAudio.setSample(0, 0, 0.5f);
+    oversizedAudio.setSample(1, 0, 0.5f);
+    oversizedBlockProcessor.processBlock(oversizedAudio, midi);
+    check(
+        oversizedBlockProcessor.getLatencySamples()
+            == boundedRealtimeLatency,
+        "callbacks beyond the realtime reserve use its bounded latency floor");
+    int oversizedImpulseFrame = -1;
+    for (int frame = 0; frame < oversizedAudio.getNumSamples(); ++frame)
+        if (oversizedImpulseFrame < 0
+            && std::abs(oversizedAudio.getSample(0, frame)) > 0.4f)
+            oversizedImpulseFrame = frame;
+    check(
+        oversizedImpulseFrame == boundedRealtimeLatency,
+        "bounded oversized-block Dry delay matches host latency");
+    oversizedBlockProcessor.releaseResources();
 
     DPWIMAudioProcessor lowRateProcessor;
     lowRateProcessor.setSource(
@@ -448,10 +649,10 @@ int main()
     setPlainValue(pitchTimeline, "sourceTranspose0", 12.0f);
     pitchTimeline.prepareToPlay(48000.0, 512);
     const auto pitchLatency = pitchTimeline.latencySnapshot();
-    check(std::abs(pitchLatency.effectiveMs - 42.0) < 0.01,
-          "active pitch shifting adds its fixed processing latency");
-    check(pitchLatency.samples == 2016,
-          "pitch latency is included in host sample reporting");
+    check(std::abs(pitchLatency.effectiveMs - 42.7083333333) < 0.01,
+          "block safety and pitch processing share one effective latency");
+    check(pitchLatency.samples == 2050,
+          "block-safe pitch latency is included in host sample reporting");
     pitchTimeline.releaseResources();
 
     checkPitchShifter();

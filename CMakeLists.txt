@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(DPWIM VERSION 0.3.1 LANGUAGES CXX)
+project(DPWIM VERSION 0.3.2 LANGUAGES CXX)
 
 if(NOT WIN32)
     message(FATAL_ERROR "DPWIM currently supports Windows only.")
@@ -121,6 +121,24 @@ if(DPWIM_BUILD_TESTS)
     )
     target_link_libraries(dpwim-tests PRIVATE dpwim_core)
     add_test(NAME dpwim-core-tests COMMAND dpwim-tests)
+
+    add_executable(dpwim-ring-buffer-generation-tests
+        Tests/audio_ring_buffer_generation.cpp
+        Source/Audio/AudioRingBuffer.cpp
+    )
+    target_include_directories(
+        dpwim-ring-buffer-generation-tests PRIVATE Source
+    )
+    target_compile_definitions(
+        dpwim-ring-buffer-generation-tests PRIVATE
+        DPWIM_AUDIO_RING_BUFFER_TEST_HOOKS=1
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
+    )
+    add_test(
+        NAME dpwim-ring-buffer-generation-tests
+        COMMAND dpwim-ring-buffer-generation-tests
+    )
 
     add_executable(dpwim-loopback-smoke
         Tests/loopback_smoke.cpp

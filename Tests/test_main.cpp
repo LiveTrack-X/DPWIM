@@ -1,7 +1,9 @@
 #include "Audio/AudioRingBuffer.h"
 #include "Audio/DryDelay.h"
 #include "Audio/SyncTimeline.h"
+#include "Platform/ProcessLoopbackCapture.h"
 
+#include <audioclient.h>
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -126,6 +128,12 @@ void testSyncTimelineRebase()
     check(std::abs(baseline.syncAdditionMs) < 1.0e-9,
           "zero offsets add no sync latency");
 
+    const auto disabledFloor =
+        dpwim::calculateSyncTimeline(
+            10.0, sources, 514.0 * 1000.0 / 48000.0);
+    check(std::abs(disabledFloor.effectiveLatencyMs - 10.0) < 1.0e-9,
+          "block safety floor is inactive without an enabled source");
+
     sources[0] = {true, -25.0, 0.0};
     sources[1] = {true, 10.0, 0.0};
     const auto rebased =
@@ -140,6 +148,25 @@ void testSyncTimelineRebase()
           "positive offset delays only that source");
     check(dpwim::latencySamples(35.0, 48000.0) == 1680,
           "effective milliseconds convert to host samples");
+
+    const auto blockSafe =
+        dpwim::calculateSyncTimeline(
+            10.0, sources, 514.0 * 1000.0 / 48000.0);
+    check(std::abs(
+              blockSafe.syncAdditionMs
+              - (25.0 + 514.0 * 1000.0 / 48000.0 - 10.0))
+              < 1.0e-9,
+          "block safety and offset rebase share one sync addition");
+    check(std::abs(
+              blockSafe.effectiveLatencyMs
+              - (25.0 + 514.0 * 1000.0 / 48000.0))
+              < 1.0e-9,
+          "block safety floor is included in the common timeline");
+    check(std::abs(
+              blockSafe.sourceLatencyMs[0]
+              - 514.0 * 1000.0 / 48000.0)
+              < 1.0e-9,
+          "source target uses the same block-safe floor");
 
     sources[2] = {true, -40.0, 0.0};
     const auto multiple =
@@ -190,6 +217,38 @@ void testPllBounds()
           "PLL ratio remains bounded");
     check(result.renderedFrames == 32,
           "primed FIFO renders the requested block");
+}
+
+void testHostBlockSafetyMargin()
+{
+    std::vector<float> input(4096, 0.25f);
+    std::array<float, 512> left{};
+    std::array<float, 512> right{};
+    float* outputs[] = {left.data(), right.data()};
+
+    dpwim::AudioRingBuffer undersized;
+    undersized.configure(4096, 2);
+    undersized.write(input.data(), 2048, 2, false);
+    const auto unsafe =
+        undersized.renderAdd(outputs, 2, 512, 1.0f, 480.0);
+    check(unsafe.discontinuity && unsafe.renderedFrames < 512,
+          "480 captured frames cannot satisfy a 512-sample callback");
+
+    dpwim::AudioRingBuffer ring;
+    ring.configure(4096, 2);
+    ring.write(input.data(), 2048, 2, false);
+    left.fill(0.0f);
+    right.fill(0.0f);
+    check(
+        dpwim::AudioRingBuffer::safeTargetFillFrames(512) == 514,
+        "512 samples include maximum PLL drift and interpolation safety");
+    check(
+        dpwim::AudioRingBuffer::safeTargetFillFrames(8192) == 8209,
+        "8192 samples include maximum PLL drift and interpolation safety");
+    const auto result =
+        ring.renderAdd(outputs, 2, 512, 1.0f, 514.0);
+    check(result.renderedFrames == 512 && !result.discontinuity,
+          "one interpolation sample beyond the host block prevents underrun");
 }
 
 void testReprimeFade()
@@ -256,8 +315,9 @@ void testWrapAndOverflowRecovery()
           "FIFO reports overwritten unread audio");
     check(recovered.renderedFrames == 4 && recovered.primed,
           "FIFO re-primes from the newest bounded window");
-    check(std::isfinite(left[0]) && left[0] >= 100.0f,
-          "overflow recovery reads valid recent audio");
+    check(std::isfinite(left[0]) && left[0] > 0.0f
+              && left[0] < left[3] && left[3] < 100.0f,
+          "overflow recovery fades valid recent audio back in");
 }
 
 void testDiscardInvalidatesHistory()
@@ -273,19 +333,89 @@ void testDiscardInvalidatesHistory()
 
     std::array<float, 4> output{};
     float* outputChannels[] = {output.data()};
-    ring.renderAdd(outputChannels, 1, 4, 1.0f, 4.0);
+    ring.renderAdd(outputChannels, 1, 4, 1.0f, 5.0);
     ring.discard();
     output.fill(0.0f);
     const auto afterDiscard =
-        ring.renderAdd(outputChannels, 1, 4, 1.0f, 4.0);
+        ring.renderAdd(outputChannels, 1, 4, 1.0f, 5.0);
     check(
-        afterDiscard.renderedFrames == 0
+        afterDiscard.discontinuity
+            && afterDiscard.renderedFrames == 0
             && std::all_of(
                 output.begin(), output.end(),
                 [](float sample) {
                     return std::abs(sample) < 1.0e-6f;
                 }),
         "FIFO discard invalidates old audio on the consumer thread");
+
+    const std::array<float, 12> freshAudio{
+        1.0f, 1.0f, 1.0f, 1.0f,
+        1.0f, 1.0f, 1.0f, 1.0f,
+        1.0f, 1.0f, 1.0f, 1.0f};
+    ring.write(freshAudio.data(), 4, 1);
+    output.fill(0.0f);
+    const auto stillRepriming =
+        ring.renderAdd(outputChannels, 1, 4, 1.0f, 5.0);
+    check(stillRepriming.renderedFrames == 0,
+          "FIFO discard never primes from pre-discontinuity history");
+    ring.write(
+        freshAudio.data() + 4,
+        static_cast<std::uint32_t>(freshAudio.size() - 4), 1);
+    output.fill(0.0f);
+    const auto recovered =
+        ring.renderAdd(outputChannels, 1, 4, 1.0f, 5.0);
+    check(recovered.renderedFrames == 4
+              && output.front() > 0.0f
+              && output.front() < output.back()
+              && output.back() < 1.0f,
+          "FIFO discard recovery fades fresh audio in");
+}
+
+void testUnderrunRecoveryFadesIn()
+{
+    dpwim::AudioRingBuffer ring;
+    ring.configure(64, 1);
+    std::array<float, 32> input{};
+    input.fill(1.0f);
+    ring.write(input.data(), 16, 1);
+
+    std::array<float, 12> tooLarge{};
+    float* outputChannels[] = {tooLarge.data()};
+    const auto underrun =
+        ring.renderAdd(outputChannels, 1, 12, 1.0f, 8.0);
+    check(underrun.discontinuity
+              && underrun.renderedFrames < tooLarge.size(),
+          "FIFO reports a block-ending underrun");
+
+    std::array<float, 4> recoveredAudio{};
+    float* recoveredChannels[] = {recoveredAudio.data()};
+    ring.write(input.data(), 4, 1);
+    const auto waitingForFreshHistory =
+        ring.renderAdd(recoveredChannels, 1, 4, 1.0f, 8.0);
+    check(waitingForFreshHistory.renderedFrames == 0,
+          "FIFO underrun does not replay previously rendered history");
+
+    ring.write(input.data() + 4, 12, 1);
+    recoveredAudio.fill(0.0f);
+    const auto recovered =
+        ring.renderAdd(recoveredChannels, 1, 4, 1.0f, 8.0);
+    check(recovered.renderedFrames == 4
+              && recoveredAudio.front() > 0.0f
+              && recoveredAudio.front() < recoveredAudio.back()
+              && recoveredAudio.back() < 1.0f,
+          "FIFO underrun recovery fades fresh audio in");
+}
+
+void testCaptureDiscontinuityFlag()
+{
+    check(
+        dpwim::ProcessLoopbackCapture::packetHasDiscontinuity(
+            AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY),
+        "WASAPI data discontinuity requests source re-prime");
+    check(
+        !dpwim::ProcessLoopbackCapture::packetHasDiscontinuity(
+            AUDCLNT_BUFFERFLAGS_SILENT),
+        "WASAPI silent packets are not discontinuities by themselves");
 }
 
 } // namespace
@@ -298,9 +428,12 @@ int main()
     testOffsetDirection();
     testSyncTimelineRebase();
     testPllBounds();
+    testHostBlockSafetyMargin();
     testReprimeFade();
     testWrapAndOverflowRecovery();
     testDiscardInvalidatesHistory();
+    testUnderrunRecoveryFadesIn();
+    testCaptureDiscontinuityFlag();
     if (failures == 0) {
         std::cout << "DPWIM core tests passed\n";
         return 0;

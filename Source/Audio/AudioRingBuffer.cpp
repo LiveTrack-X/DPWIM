@@ -2,8 +2,25 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace dpwim {
+
+std::uint32_t AudioRingBuffer::safeTargetFillFrames(
+    std::uint32_t blockFrames) noexcept
+{
+    if (blockFrames == 0)
+        return 0;
+    const auto safeFrames =
+        std::ceil(
+            static_cast<double>(blockFrames)
+            * kMaximumRenderRatio);
+    return static_cast<std::uint32_t>(
+        std::min(
+            safeFrames,
+            static_cast<double>(
+                std::numeric_limits<std::uint32_t>::max())));
+}
 
 void AudioRingBuffer::configure(std::size_t capacityFrames,
                                 std::uint32_t channels)
@@ -12,6 +29,8 @@ void AudioRingBuffer::configure(std::size_t capacityFrames,
     channels_ = std::max<std::uint32_t>(channels, 1);
     data_.assign(capacityFrames_ * channels_, 0.0f);
     generation_.store(0, std::memory_order_relaxed);
+    discardFrame_.store(0, std::memory_order_relaxed);
+    discardFadeFrames_.store(0, std::memory_order_relaxed);
     consumerGeneration_ = 0;
     reset();
 }
@@ -19,14 +38,19 @@ void AudioRingBuffer::configure(std::size_t capacityFrames,
 void AudioRingBuffer::reset() noexcept
 {
     writeFrame_.store(0, std::memory_order_release);
+    discardFrame_.store(0, std::memory_order_release);
+    discardFadeFrames_.store(0, std::memory_order_release);
     resetConsumerState();
     consumerGeneration_ =
         generation_.load(std::memory_order_acquire);
 }
 
-void AudioRingBuffer::discard() noexcept
+void AudioRingBuffer::discard(std::uint32_t fadeFrames) noexcept
 {
-    writeFrame_.store(0, std::memory_order_release);
+    discardFadeFrames_.store(fadeFrames, std::memory_order_release);
+    discardFrame_.store(
+        writeFrame_.load(std::memory_order_acquire),
+        std::memory_order_release);
     generation_.fetch_add(1, std::memory_order_acq_rel);
 }
 
@@ -37,6 +61,7 @@ void AudioRingBuffer::resetConsumerState() noexcept
     ratio_ = 1.0;
     fadeTotal_ = 0;
     fadeRemaining_ = 0;
+    consumerStartFrame_ = 0;
 }
 
 void AudioRingBuffer::reprime(std::uint32_t fadeFrames) noexcept
@@ -45,6 +70,18 @@ void AudioRingBuffer::reprime(std::uint32_t fadeFrames) noexcept
     ratio_ = 1.0;
     fadeTotal_ = fadeFrames;
     fadeRemaining_ = fadeFrames;
+}
+
+void AudioRingBuffer::adoptConsumerGeneration(
+    std::uint64_t generation) noexcept
+{
+    resetConsumerState();
+    fadeTotal_ =
+        discardFadeFrames_.load(std::memory_order_acquire);
+    fadeRemaining_ = fadeTotal_;
+    consumerStartFrame_ =
+        discardFrame_.load(std::memory_order_acquire);
+    consumerGeneration_ = generation;
 }
 
 void AudioRingBuffer::write(const float* interleaved, std::uint32_t frames,
@@ -84,8 +121,8 @@ AudioRingBuffer::RenderResult AudioRingBuffer::renderAdd(
     const auto generation =
         generation_.load(std::memory_order_acquire);
     if (generation != consumerGeneration_) {
-        resetConsumerState();
-        consumerGeneration_ = generation;
+        adoptConsumerGeneration(generation);
+        result.discontinuity = true;
     }
 
     const auto write = writeFrame_.load(std::memory_order_acquire);
@@ -96,13 +133,18 @@ AudioRingBuffer::RenderResult AudioRingBuffer::renderAdd(
         const auto oldestSafe =
             write > capacityFrames_ ? write - capacityFrames_ : 0;
         if (readFrame_ < static_cast<double>(oldestSafe)) {
-            primed_ = false;
+            reprime();
             result.discontinuity = true;
         }
     }
 
     if (!primed_) {
-        if (static_cast<double>(write) < targetFillFrames + 2.0)
+        const auto availableSinceDiscard =
+            write >= consumerStartFrame_
+            ? write - consumerStartFrame_
+            : 0;
+        if (static_cast<double>(availableSinceDiscard)
+            < targetFillFrames + 2.0)
             return result;
         readFrame_ = static_cast<double>(write) - targetFillFrames;
         primed_ = true;
@@ -112,15 +154,27 @@ AudioRingBuffer::RenderResult AudioRingBuffer::renderAdd(
     const double normalizedError =
         (fill - targetFillFrames) / std::max(targetFillFrames, 64.0);
     const double wantedRatio =
-        std::clamp(1.0 + normalizedError * 0.002, 0.998, 1.002);
+        std::clamp(
+            1.0 + normalizedError * 0.002,
+            kMinimumRenderRatio, kMaximumRenderRatio);
     ratio_ += (wantedRatio - ratio_) * 0.02;
 
     for (std::uint32_t frame = 0; frame < frames; ++frame) {
+        const auto currentGeneration =
+            generation_.load(std::memory_order_acquire);
+        if (currentGeneration != consumerGeneration_) {
+            adoptConsumerGeneration(currentGeneration);
+            result.renderedFrames = 0;
+            result.discontinuity = true;
+            break;
+        }
+
         const auto availableWrite =
             writeFrame_.load(std::memory_order_acquire);
         const auto base = static_cast<std::uint64_t>(std::floor(readFrame_));
         if (base + 1 >= availableWrite) {
-            primed_ = false;
+            reprime();
+            consumerStartFrame_ = availableWrite;
             result.discontinuity = true;
             break;
         }
@@ -163,6 +217,22 @@ AudioRingBuffer::RenderResult AudioRingBuffer::renderAdd(
 
         readFrame_ += ratio_;
         ++result.renderedFrames;
+#if defined(DPWIM_AUDIO_RING_BUFFER_TEST_HOOKS)
+        if (result.renderedFrames == 1
+            && afterFirstRenderedFrameHook_ != nullptr) {
+            const auto hook = afterFirstRenderedFrameHook_;
+            afterFirstRenderedFrameHook_ = nullptr;
+            hook(*this);
+        }
+#endif
+    }
+
+    const auto finalGeneration =
+        generation_.load(std::memory_order_acquire);
+    if (finalGeneration != consumerGeneration_) {
+        adoptConsumerGeneration(finalGeneration);
+        result.renderedFrames = 0;
+        result.discontinuity = true;
     }
 
     result.ratio = ratio_;

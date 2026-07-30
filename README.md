@@ -43,29 +43,37 @@ Windows x64 VST2/VST3 플러그인입니다.
 가상 오디오 장치 없이 사용할 수 있습니다. 현재 GPL-3.0 기반의 무료 공개
 프리뷰입니다.
 
-**[Download DPWIM v0.3.1 / DPWIM v0.3.1 다운로드](https://github.com/LiveTrack-X/DPWIM/releases/tag/v0.3.1)**
+**[Download DPWIM v0.3.2 / DPWIM v0.3.2 다운로드](https://github.com/LiveTrack-X/DPWIM/releases/tag/v0.3.2)**
 
-Status: `v0.3.1` public preview. It is locally software-verified, but unsigned,
+Status: `v0.3.2` public preview. It is locally software-verified, but unsigned,
 not DAW-matrix-tested, and not claimed production-ready.
 
-상태: `v0.3.1` 공개 프리뷰입니다. 로컬 소프트웨어 검증은 통과했지만
+상태: `v0.3.2` 공개 프리뷰입니다. 로컬 소프트웨어 검증은 통과했지만
 코드 서명과 광범위한 DAW 호환성 검증은 아직 완료되지 않았습니다.
 
-### v0.3.1 maintenance update / v0.3.1 유지보수 업데이트
+### v0.3.2 maintenance update / v0.3.2 유지보수 업데이트
 
-- Smoother 60 Hz Dry/source/MAIN OUT meters.
-- Separate internal and host bypass paths with consistent audio/PDC timing.
-- Immediate latency reporting for Base, Offset, pitch, and source-state
-  changes.
-- Stale-buffer, low-sample-rate delay-capacity, and source FIFO race fixes.
+- Active-source host-block safety now includes the FIFO drift ratio and
+  interpolation requirement, so a 512-frame callback uses a 514-sample floor.
+- A larger-than-prepared callback publishes its required floor without
+  changing PDC from the audio thread. Captured sources stay muted until the
+  host is notified and the next callback adopts the floor.
+- FIFO underrun, overflow, explicit discard, and WASAPI discontinuity now
+  invalidate stale history, re-prime, and fade captured audio back in.
+- Discard no longer rewinds the producer counter while capture is writing.
+- Update-check publication is serialized with shutdown.
 
-- Dry/소스/MAIN OUT 미터를 60 Hz로 부드럽게 갱신합니다.
-- 내부 바이패스와 호스트 바이패스를 분리하고 실제 오디오와 PDC 타이밍을
-  일치시켰습니다.
-- Base, Offset, 피치, 소스 상태 변경을 호스트 레이턴시에 즉시 반영합니다.
-- 오래된 버퍼 재생, 저샘플레이트 지연 용량, 소스 FIFO 경합을 수정했습니다.
+- 활성 소스의 호스트 블록 안전값에 FIFO drift 비율과 보간 여유를 포함합니다
+  (512프레임 콜백은 514샘플 floor).
+- 준비 범위보다 큰 콜백은 오디오 스레드에서 PDC를 바꾸지 않고 필요한
+  floor만 게시합니다. 호스트 통지 후 다음 콜백이 floor를 채택할 때까지
+  캡처 소스는 무음으로 유지됩니다.
+- FIFO underrun·overflow·discard·WASAPI discontinuity 뒤에는 부분/오래된
+  블록을 섞지 않고 stale history를 무효화한 뒤 재프라임·페이드인합니다.
+- capture 쓰기 중 discard가 producer counter를 되감지 않습니다.
+- 업데이트 확인 결과 게시와 종료를 직렬화했습니다.
 
-[Full v0.3.1 release notes / 전체 v0.3.1 릴리즈 노트](docs/releases/v0.3.1.md)
+[Full v0.3.2 release notes / 전체 v0.3.2 릴리즈 노트](docs/releases/v0.3.2.md)
 
 The source checkout may contain unreleased work described under `Unreleased`
 in the changelog. The download link above remains the latest published build.
@@ -87,8 +95,10 @@ normal 64-bit VST2/VST3 effect.
 
 ## Current controls
 
-- Base Latency: the common 10-250 ms safety delay reserved for stable capture
-  and input alignment.
+- Base Latency: the user-selected 10-250 ms floor for stable capture and input
+  alignment. While any capture source is active, DPWIM automatically raises
+  the effective floor when the host block plus FIFO drift/interpolation safety
+  needs more time.
 - Dry Input ON/OFF: mute the upstream/microphone path without stopping app capture.
 - Dry Gain: independent level for the upstream/microphone path.
 - Four source slots: one selected application or desktop capture.
@@ -136,9 +146,11 @@ display.
 표시합니다. 따라서 개별 소스에는 없던 합산 클리핑도 확인할 수 있으며,
 바이패스 중에는 실제로 즉시 통과하는 원본 입력을 표시합니다.
 
-`OUT Latency = Base Latency + automatic SYNC addition`. Negative source
-offsets and active source processing can add SYNC latency; positive offsets
-delay only their source.
+`OUT Latency = Base Latency + automatic SYNC addition`. SYNC includes any
+active-source host-block safety above Base, negative-offset rebasing, and pitch
+processing latency; positive offsets delay only their source. At 48 kHz a new
+instance with no active source remains 480 samples. With an active source,
+512-frame host callbacks require at least 514 samples.
 
 OUT은 DPWIM이 추가하고 호스트에 보고하는 지연입니다. DirectPipe나 DAW가
 표시하는 전체 지연에는 장치 버퍼, 다른 플러그인, 호스트 처리 시간이 더해질
@@ -152,6 +164,14 @@ DPWIM 지연을 0으로 만들지만, 호스트 자체의 체인 바이패스는
 Each captured source has its own bounded FIFO and drift-correction clock. App
 mode includes the selected process tree; desktop mode captures system output
 while excluding the current host process tree to reduce feedback.
+
+Prepared active-source callbacks up to 8192 frames are covered without
+audio-thread allocation. If a host unexpectedly supplies a larger block, DPWIM
+keeps Dry audio running but mutes/re-primes captured sources rather than mixing
+a partial block. A larger-than-prepared supported block is observed with an
+atomic only; the 60 Hz message-thread timer notifies the host PDC first, and
+the next audio callback then adopts the common floor. A discard generation
+seen anywhere during FIFO rendering invalidates that complete source block.
 
 Pitch processing adds algorithmic latency; the common timeline and the
 OUT/host latency report include it automatically.

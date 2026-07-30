@@ -22,7 +22,8 @@ struct SyncTimelinePlan {
 
 SyncTimelinePlan calculateSyncTimeline(
     double targetLatencyMs,
-    const std::array<SyncSourceTiming, kSyncSourceCount>& sources) noexcept;
+    const std::array<SyncSourceTiming, kSyncSourceCount>& sources,
+    double minimumEnabledSourceLatencyMs = 0.0) noexcept;
 
 int latencySamples(double latencyMs, double sampleRate) noexcept;
 

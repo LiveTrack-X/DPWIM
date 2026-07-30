@@ -12,7 +12,7 @@ namespace dpwim {
 class ProcessLoopbackCapture {
 public:
     using AudioCallback = std::function<void(
-        const float*, std::uint32_t, std::uint32_t, bool)>;
+        const float*, std::uint32_t, std::uint32_t, bool, bool)>;
 
     ProcessLoopbackCapture();
     ~ProcessLoopbackCapture();
@@ -23,6 +23,8 @@ public:
     bool start(std::uint32_t targetPid, bool includeProcessTree,
                std::uint32_t sampleRate, AudioCallback callback);
     void stop() noexcept;
+
+    static bool packetHasDiscontinuity(std::uint32_t flags) noexcept;
 
     bool isRunning() const noexcept
     {

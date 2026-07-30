@@ -114,7 +114,12 @@ void UpdateChecker::run(juce::String currentVersion)
         publish({State::Failed, {}, {}});
         return;
     }
-    activeRequest_.store(request.value, std::memory_order_release);
+    {
+        std::lock_guard<std::mutex> lock(requestMutex_);
+        if (stopRequested_.load(std::memory_order_acquire))
+            return;
+        activeRequest_.store(request.value, std::memory_order_release);
+    }
 
     constexpr auto headers =
         L"Accept: application/vnd.github+json\r\n"
@@ -195,10 +200,14 @@ void UpdateChecker::run(juce::String currentVersion)
 
 void UpdateChecker::stop() noexcept
 {
-    stopRequested_.store(true, std::memory_order_release);
-    if (auto* request =
-            activeRequest_.exchange(
-                nullptr, std::memory_order_acq_rel))
+    void* request = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(requestMutex_);
+        stopRequested_.store(true, std::memory_order_release);
+        request = activeRequest_.exchange(
+            nullptr, std::memory_order_acq_rel);
+    }
+    if (request != nullptr)
         WinHttpCloseHandle(static_cast<HINTERNET>(request));
     if (worker_.joinable())
         worker_.join();

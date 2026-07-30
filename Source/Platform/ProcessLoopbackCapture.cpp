@@ -90,6 +90,12 @@ ProcessLoopbackCapture::~ProcessLoopbackCapture()
     stop();
 }
 
+bool ProcessLoopbackCapture::packetHasDiscontinuity(
+    std::uint32_t flags) noexcept
+{
+    return (flags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY) != 0;
+}
+
 bool ProcessLoopbackCapture::start(std::uint32_t targetPid,
                                    bool includeProcessTree,
                                    std::uint32_t sampleRate,
@@ -236,9 +242,14 @@ void ProcessLoopbackCapture::workerMain(std::uint32_t targetPid,
 
                 const bool silent =
                     (flags & AUDCLNT_BUFFERFLAGS_SILENT) != 0;
+                const bool discontinuity =
+                    packetHasDiscontinuity(flags);
+                // Device/QPC positions are intentionally not used as a
+                // measured timeline: timestamp calibration remains a separate
+                // product scope, while current sync is FIFO/manual-offset based.
                 callback_(silent ? nullptr
                                  : reinterpret_cast<const float*>(bytes),
-                          frames, 2, silent);
+                          frames, 2, silent, discontinuity);
                 captureClient->ReleaseBuffer(frames);
             }
         }

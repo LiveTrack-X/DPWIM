@@ -75,7 +75,7 @@ int main()
             GetCurrentProcessId(), true, kSampleRate,
             [&capturedFrames, &capturedEnergy](
                 const float* data, std::uint32_t frames,
-                std::uint32_t channels, bool silent) {
+                std::uint32_t channels, bool silent, bool) {
                 capturedFrames.fetch_add(frames, std::memory_order_relaxed);
                 if (silent || data == nullptr)
                     return;
