@@ -13,11 +13,13 @@ struct DPWIMProcessorTestAccess {
     static void writeCapturedAudio(
         DPWIMAudioProcessor& processor, int slot,
         const std::vector<float>& interleaved,
-        std::uint32_t frames, std::uint32_t channels)
+        std::uint32_t frames, std::uint32_t channels,
+        bool discontinuity = false)
     {
-        processor.slots_[static_cast<std::size_t>(slot)]
-            ->ring.write(
-                interleaved.data(), frames, channels, false);
+        DPWIMAudioProcessor::ingestCapturedPacket(
+            *processor.slots_[static_cast<std::size_t>(slot)],
+            interleaved.data(), frames, channels,
+            false, discontinuity);
     }
 
     static int committedBlockSafetyFrames(
@@ -32,6 +34,13 @@ struct DPWIMProcessorTestAccess {
     {
         return processor.pendingCommittedBlockSafetyFrames_.load(
             std::memory_order_acquire);
+    }
+
+    static std::uint64_t captureDiscontinuities(
+        const DPWIMAudioProcessor& processor, int slot)
+    {
+        return processor.slots_[static_cast<std::size_t>(slot)]
+            ->captureDiscontinuities.load(std::memory_order_relaxed);
     }
 
     static bool hostNotificationPrecedesSafetyPublication()
@@ -360,6 +369,37 @@ int main()
         captureSurvivedLatePacket,
         "active capture survives one late shared-mode packet");
     captureJitterProcessor.releaseResources();
+
+    DPWIMAudioProcessor flaggedPacketProcessor;
+    flaggedPacketProcessor.setSource(
+        0, DPWIMAudioProcessor::SourceMode::Application,
+        0, {});
+    setPlainValue(
+        flaggedPacketProcessor, "dryEnabled", 0.0f);
+    flaggedPacketProcessor.prepareToPlay(48000.0, 512);
+    std::vector<float> flaggedPacketAudio(8192, 0.75f);
+    DPWIMProcessorTestAccess::writeCapturedAudio(
+        flaggedPacketProcessor, 0, flaggedPacketAudio, 4096, 2);
+    juce::AudioBuffer<float> flaggedAudio(2, 512);
+    flaggedAudio.clear();
+    flaggedPacketProcessor.processBlock(flaggedAudio, midi);
+    check(
+        flaggedAudio.getMagnitude(
+            0, 0, flaggedAudio.getNumSamples()) > 0.7f,
+        "capture is primed before a flagged packet");
+    DPWIMProcessorTestAccess::writeCapturedAudio(
+        flaggedPacketProcessor, 0, flaggedPacketAudio, 512, 2, true);
+    check(
+        DPWIMProcessorTestAccess::captureDiscontinuities(
+            flaggedPacketProcessor, 0) == 1,
+        "a flagged packet increments the capture diagnostic");
+    flaggedAudio.clear();
+    flaggedPacketProcessor.processBlock(flaggedAudio, midi);
+    check(
+        flaggedAudio.getMagnitude(
+            0, 0, flaggedAudio.getNumSamples()) > 0.7f,
+        "a flagged packet preserves queued capture continuity");
+    flaggedPacketProcessor.releaseResources();
 
     DPWIMProcessorTestAccess::writeCapturedAudio(
         observedBlockProcessor, 0, capturedAudio, 4096, 2);

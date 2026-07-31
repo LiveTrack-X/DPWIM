@@ -36,6 +36,7 @@ public:
         bool running = false;
         double fillFrames = 0.0;
         double ratio = 1.0;
+        std::uint64_t captureDiscontinuities = 0;
     };
 
     struct LatencySnapshot {
@@ -123,6 +124,7 @@ private:
         std::atomic<std::uint32_t> pid{0};
         std::atomic<double> fillFrames{0.0};
         std::atomic<double> ratio{1.0};
+        std::atomic<std::uint64_t> captureDiscontinuities{0};
         std::array<std::atomic<float>, 2> meterPeaks{};
         bool lastPitchActive = false;
         double lastRequestedFillFrames = -1.0;
@@ -130,6 +132,10 @@ private:
         juce::String executable;
     };
 
+    static void ingestCapturedPacket(
+        SourceSlot&, const float*, std::uint32_t frames,
+        std::uint32_t channels, bool silent,
+        bool discontinuity) noexcept;
     static juce::AudioProcessorValueTreeState::ParameterLayout
     createParameterLayout();
     static juce::String gainParameter(int slot);

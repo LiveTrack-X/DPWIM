@@ -4,6 +4,17 @@ All notable changes to DPWIM are documented here.
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-07-31
+
+### Fixed
+
+- WASAPI `DATA_DISCONTINUITY` packets no longer discard otherwise valid
+  queued application audio. DPWIM records the diagnostic and keeps the current
+  packet; actual FIFO underrun, overwrite, explicit source changes, and
+  audio-path resets retain their existing re-prime behavior.
+- Added a regression that primes a captured source, injects a flagged packet,
+  and requires the following 512-frame callback to remain audible.
+
 ## [0.3.3] - 2026-07-31
 
 ### Fixed

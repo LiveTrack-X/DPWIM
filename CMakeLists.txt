@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(DPWIM VERSION 0.3.3 LANGUAGES CXX)
+project(DPWIM VERSION 0.3.4 LANGUAGES CXX)
 
 if(NOT WIN32)
     message(FATAL_ERROR "DPWIM currently supports Windows only.")

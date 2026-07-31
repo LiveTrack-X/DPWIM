@@ -1,0 +1,2 @@
+d6480d767772a2a98c4ba6b585bb22d7080dc38e7c9adac616c48ffdb6f2eb7b  DPWIM-v0.3.4-Windows-x64-VST2.zip
+b695f2af9625beca43f83e25c4496c575b76c85dc4c0c85cb3a855b9a9531e6c  DPWIM-v0.3.4-Windows-x64-VST3.zip

@@ -745,6 +745,21 @@ void DPWIMAudioProcessor::setSourceEnabled(int slotIndex, bool enabled)
     startSlot(slotIndex);
 }
 
+void DPWIMAudioProcessor::ingestCapturedPacket(
+    SourceSlot& slot, const float* data, std::uint32_t frames,
+    std::uint32_t channels, bool silent,
+    bool discontinuity) noexcept
+{
+    if (discontinuity) {
+        // The flag breaks device-position correlation; it does not invalidate
+        // the current packet or audio that is already queued. Real FIFO
+        // underrun/overwrite paths still re-prime independently.
+        slot.captureDiscontinuities.fetch_add(
+            1, std::memory_order_relaxed);
+    }
+    slot.ring.write(data, frames, channels, silent);
+}
+
 void DPWIMAudioProcessor::startSlot(int slotIndex)
 {
     if (!prepared_.load(std::memory_order_acquire)
@@ -776,6 +791,8 @@ void DPWIMAudioProcessor::startSlot(int slotIndex)
     if (pid == 0)
         return;
 
+    slot.captureDiscontinuities.store(
+        0, std::memory_order_relaxed);
     const auto rate = static_cast<std::uint32_t>(
         std::llround(sampleRate_.load(std::memory_order_acquire)));
     auto* const slotPointer = &slot;
@@ -784,9 +801,9 @@ void DPWIMAudioProcessor::startSlot(int slotIndex)
         [slotPointer](const float* data, std::uint32_t frames,
                       std::uint32_t channels, bool silent,
                       bool discontinuity) {
-            if (discontinuity)
-                slotPointer->ring.discard();
-            slotPointer->ring.write(data, frames, channels, silent);
+            ingestCapturedPacket(
+                *slotPointer, data, frames, channels,
+                silent, discontinuity);
         });
 }
 
@@ -816,6 +833,8 @@ DPWIMAudioProcessor::sourceSnapshot(int slotIndex) const
     snapshot.running = slot.capture.isRunning();
     snapshot.fillFrames = slot.fillFrames.load(std::memory_order_relaxed);
     snapshot.ratio = slot.ratio.load(std::memory_order_relaxed);
+    snapshot.captureDiscontinuities =
+        slot.captureDiscontinuities.load(std::memory_order_relaxed);
     return snapshot;
 }
 

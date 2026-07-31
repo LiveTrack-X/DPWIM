@@ -43,35 +43,37 @@ Windows x64 VST2/VST3 플러그인입니다.
 가상 오디오 장치 없이 사용할 수 있습니다. 현재 GPL-3.0 기반의 무료 공개
 프리뷰입니다.
 
-**[Download DPWIM v0.3.3 / DPWIM v0.3.3 다운로드](https://github.com/LiveTrack-X/DPWIM/releases/tag/v0.3.3)**
+**[Download DPWIM v0.3.4 / DPWIM v0.3.4 다운로드](https://github.com/LiveTrack-X/DPWIM/releases/tag/v0.3.4)**
 
-Status: `v0.3.3` is the latest published public preview. It is locally
+Status: `v0.3.4` is the latest published public preview. It is locally
 software-verified, but unsigned, not broadly DAW-matrix-tested, and not claimed
 production-ready.
 
-상태: 공개된 최신 프리뷰는 `v0.3.3`입니다. 로컬 소프트웨어 검증은
+상태: 공개된 최신 프리뷰는 `v0.3.4`입니다. 로컬 소프트웨어 검증은
 통과했지만 코드 서명과 광범위한 DAW 호환성 검증은 아직 완료되지 않았으며,
 프로덕션 준비 완료를 주장하지 않습니다.
 
-### v0.3.3 stability update / v0.3.3 안정성 업데이트
+### v0.3.4 continuity fix / v0.3.4 연속성 수정
 
-- Active capture sources reserve at least 20 ms on the common timeline.
-  At 48 kHz the ordinary active-source minimum is 960 samples.
-- This reserve prevents a late Windows shared-mode capture packet from
-  draining the FIFO and muting a complete host block.
-- With no enabled capture source, the minimum remains 10 ms / 480 samples.
-- A deterministic regression withholds capture delivery across three
-  consecutive 256-frame host callbacks.
+- A WASAPI timestamp-discontinuity flag no longer discards valid application
+  audio that is already queued.
+- The flagged current packet remains usable; the event is retained as a
+  diagnostic counter.
+- Actual FIFO underrun, overwrite, explicit source changes, and audio-path
+  resets keep their existing safe re-prime behavior.
+- A deterministic 512-frame regression prevents this source-only mute from
+  returning.
 
-- 활성 캡처 소스가 있으면 공통 타임라인에 최소 20 ms를 확보합니다.
-  48 kHz에서는 일반적인 활성 소스 최소값이 960 samples입니다.
-- Windows 공유 모드 캡처 패킷이 잠깐 늦어져도 FIFO가 바닥나 전체 호스트
-  블록이 무음 처리되지 않도록 여유를 둡니다.
-- 활성 캡처 소스가 없으면 최소값은 기존 10 ms / 480 samples 그대로입니다.
-- 캡처 전달을 늦추고 256-frame 호스트 콜백 3회를 연속 처리하는 회귀
-  테스트를 추가했습니다.
+- WASAPI 타임스탬프 불연속 플래그가 발생해도 이미 대기 중인 정상
+  애플리케이션 오디오를 폐기하지 않습니다.
+- 플래그가 붙은 현재 패킷은 계속 사용하고 이벤트 횟수만 진단값으로
+  기록합니다.
+- 실제 FIFO underrun·overwrite, 명시적 소스 변경, 오디오 경로 재설정의
+  안전한 재프라임 동작은 그대로 유지합니다.
+- 이 소스 전용 무음 블록의 재발을 막는 512-frame 회귀 테스트를
+  추가했습니다.
 
-[Full v0.3.3 release notes / 전체 v0.3.3 릴리즈 노트](docs/releases/v0.3.3.md)
+[Full v0.3.4 release notes / 전체 v0.3.4 릴리즈 노트](docs/releases/v0.3.4.md)
 
 The source checkout may contain unreleased work described under `Unreleased`
 in the changelog. The download link above remains the latest published build.
